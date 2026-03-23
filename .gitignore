@@ -113,6 +113,9 @@ dmypy.json
 Thumbs.db
 
 # Project-specific generated files
-talk_to_speak/saved_elevenlabs_tts/
+**/saved_elevenlabs_tts/
 results/
 background_videos/
+
+# Environment variables
+.env

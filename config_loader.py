@@ -2,6 +2,10 @@ import json
 import os
 from pathlib import Path
 
+from dotenv import load_dotenv
+
+load_dotenv()
+
 DEFAULT_CONFIG = {
     "backgroundVideo": {
         "videoName": "",
@@ -10,12 +14,10 @@ DEFAULT_CONFIG = {
         "existingClipName": ""
     },
     "tts": {
-        "apiKey": "API_KEY",
         "model": "eleven_multilingual_v2",
         "voice": "JBFqnCBsd6RMkjVDRZzb",
         "phrasesPath": "talk_to_speak/hannibal_lecter/phrases.json",
         "useSavedTts": False,
-        "savedTtsDir": "talk_to_speak/saved_elevenlabs_tts",
         "savedTtsPrefix": "",
         "font": "Arial",
         "fontColor": "white",
@@ -62,5 +64,10 @@ def load_config(config_path="config.json"):
         raise ValueError("tts.phrasesPath must be set in config.json")
     if not os.path.exists(phrases_path):
         raise FileNotFoundError(f"Phrases file not found: {phrases_path}")
+
+    api_key = os.getenv("ELEVENLABS_API_KEY", "")
+    if not api_key:
+        raise ValueError("ELEVENLABS_API_KEY not set in .env")
+    config["elevenlabs_api_key"] = api_key
 
     return config

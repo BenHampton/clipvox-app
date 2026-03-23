@@ -7,13 +7,12 @@ from PIL import Image, ImageColor, ImageDraw, ImageFont
 if not hasattr(Image, "ANTIALIAS"):
     Image.ANTIALIAS = Image.LANCZOS
 
-from moviepy.audio.AudioClip import AudioClip
 from moviepy.editor import (
     AudioFileClip,
+    CompositeAudioClip,
     CompositeVideoClip,
     ImageClip,
     VideoFileClip,
-    concatenate_audioclips,
 )
 
 TARGET_WIDTH = 1080
@@ -116,15 +115,14 @@ def _create_text_clip(text, video_w, video_h, font, font_color, start, duration)
     return clip.set_mask(mask)
 
 
-def compose_video(config, clip_path, tts_audio_path, tts_data):
+def compose_video(config, clip_path, tts_clips, video_duration):
     tts_config = config["tts"]
     output_config = config["output"]
 
     print(f"Loading background clip: {clip_path}")
     bg_clip = VideoFileClip(clip_path)
     bg_clip = _resize_crop_vertical(bg_clip)
-    video_duration = min(bg_clip.duration, 60.0)
-    bg_clip = bg_clip.subclip(0, video_duration)
+    bg_clip = bg_clip.subclip(0, min(bg_clip.duration, video_duration))
 
     video_w, video_h = bg_clip.w, bg_clip.h
 
@@ -138,35 +136,36 @@ def compose_video(config, clip_path, tts_audio_path, tts_data):
     except Exception:
         font = ImageFont.load_default()
 
-    print(f"Loading TTS audio: {tts_audio_path}")
-    audio = AudioFileClip(tts_audio_path)
-    audio_duration = min(audio.duration, video_duration)
-    audio = audio.subclip(0, audio_duration)
-
-    if audio_duration < video_duration:
-        silence_duration = video_duration - audio_duration
-        silence = AudioClip(
-            make_frame=lambda t: np.zeros(2),
-            duration=silence_duration
-        )
-        silence.fps = audio.fps
-        audio = concatenate_audioclips([audio, silence])
-
-    chunks = tts_data.get("chunks", [])
+    audio_clips = []
     text_clips = []
 
-    for chunk in chunks:
-        start = chunk["start"]
-        end = min(chunk["end"], audio_duration)
-        if start >= audio_duration:
-            break
-        duration = max(0.05, end - start)
-        text_clips.append(
-            _create_text_clip(chunk["text"], video_w, video_h, font, font_color, start, duration)
-        )
+    for clip_info in tts_clips:
+        offset = clip_info["offset"]
+        audio_path = clip_info["audio_path"]
+        chunks = clip_info["tts_data"].get("chunks", [])
 
-    final = CompositeVideoClip([bg_clip] + text_clips)
-    final = final.set_audio(audio).set_duration(video_duration)
+        print(f"Loading TTS audio: {audio_path} (offset: {offset:.2f}s)")
+        audio = AudioFileClip(audio_path).set_start(offset)
+        audio_clips.append(audio)
+
+        for chunk in chunks:
+            abs_start = offset + chunk["start"]
+            abs_end = offset + chunk["end"]
+            if abs_start >= video_duration:
+                break
+            duration = max(0.05, min(abs_end, video_duration) - abs_start)
+            text_clips.append(
+                _create_text_clip(chunk["text"], video_w, video_h, font, font_color, abs_start, duration)
+            )
+
+    if audio_clips:
+        composite_audio = CompositeAudioClip(audio_clips).set_duration(video_duration)
+    else:
+        composite_audio = None
+
+    final = CompositeVideoClip([bg_clip] + text_clips).set_duration(video_duration)
+    if composite_audio:
+        final = final.set_audio(composite_audio)
 
     results_dir = Path("results")
     results_dir.mkdir(parents=True, exist_ok=True)
@@ -185,7 +184,8 @@ def compose_video(config, clip_path, tts_audio_path, tts_data):
     )
 
     bg_clip.close()
-    audio.close()
+    for a in audio_clips:
+        a.close()
 
     print(f"Done! Output: {output_path}")
     return str(output_path)

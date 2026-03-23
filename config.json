@@ -6,12 +6,10 @@
         "existingClipName": ""
     },
     "tts": {
-        "apiKey": "API_KEY",
         "model": "eleven_multilingual_v2",
         "voice": "JBFqnCBsd6RMkjVDRZzb",
         "phrasesPath": "talk_to_speak/hannibal_lecter/phrases.json",
         "useSavedTts": true,
-        "savedTtsDir": "talk_to_speak/saved_elevenlabs_tts",
         "savedTtsPrefix": "",
         "font": "Arial",
         "fontColor": "white",

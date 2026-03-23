@@ -15,10 +15,10 @@ def main():
     clip_path = generate_clip(config)
 
     print("\n--- Step 2: Text-to-Speech ---")
-    tts_audio_path, tts_data = generate_tts(config)
+    tts_clips, video_duration = generate_tts(config)
 
     print("\n--- Step 3: Composing Video ---")
-    output_path = compose_video(config, clip_path, tts_audio_path, tts_data)
+    output_path = compose_video(config, clip_path, tts_clips, video_duration)
 
     print(f"\n=== Complete! ===")
     print(f"Output: {output_path}")
