@@ -119,3 +119,6 @@ background_videos/
 
 # Environment variables
 .env
+
+# MoviePy leftover temp files
+*TEMP_MPY_wvf_snd.mp4

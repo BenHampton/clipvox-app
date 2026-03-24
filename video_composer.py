@@ -1,19 +1,10 @@
 import os
+import shutil
+import subprocess
 from datetime import datetime
 from pathlib import Path
 
-import numpy as np
-from PIL import Image, ImageColor, ImageDraw, ImageFont
-if not hasattr(Image, "ANTIALIAS"):
-    Image.ANTIALIAS = Image.LANCZOS
-
-from moviepy.editor import (
-    AudioFileClip,
-    CompositeAudioClip,
-    CompositeVideoClip,
-    ImageClip,
-    VideoFileClip,
-)
+import imageio_ffmpeg
 
 TARGET_WIDTH = 1080
 TARGET_HEIGHT = 1920
@@ -24,9 +15,7 @@ def _find_font(font_name):
         font_name,
         f"C:/Windows/Fonts/{font_name}.ttf",
         f"C:/Windows/Fonts/{font_name.lower()}.ttf",
-        f"C:/Windows/Fonts/{font_name}bd.ttf",
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-        "/System/Library/Fonts/Arial.ttf",
+        f"C:/Windows/Fonts/{font_name}bd.ttf"
     ]
     for path in candidates:
         if os.path.exists(path):
@@ -34,158 +23,136 @@ def _find_font(font_name):
     return None
 
 
-def _resize_crop_vertical(clip, target_w=TARGET_WIDTH, target_h=TARGET_HEIGHT):
-    clip_ratio = clip.w / clip.h
-    target_ratio = target_w / target_h
-
-    if clip_ratio > target_ratio:
-        clip = clip.resize(height=target_h)
-        x_center = clip.w // 2
-        clip = clip.crop(x1=x_center - target_w // 2, x2=x_center + target_w // 2)
-    else:
-        clip = clip.resize(width=target_w)
-        y_center = clip.h // 2
-        clip = clip.crop(y1=y_center - target_h // 2, y2=y_center + target_h // 2)
-
-    return clip
-
-
-def _parse_color_rgba(color_str):
+def _find_ffmpeg():
     try:
-        rgb = ImageColor.getrgb(color_str)
-        return (*rgb[:3], 255)
+        return imageio_ffmpeg.get_ffmpeg_exe()
     except Exception:
-        return (255, 255, 255, 255)
+        pass
+    ffmpeg = shutil.which("ffmpeg")
+    if ffmpeg:
+        return ffmpeg
+    raise RuntimeError("FFmpeg not found. Install imageio-ffmpeg or add ffmpeg to PATH.")
 
 
-def _make_text_frame(text, video_w, video_h, font, font_color):
-    img = Image.new("RGBA", (video_w, video_h), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(img)
-
-    max_width = int(video_w * 0.75)
-
-    words = text.split()
-    lines = []
-    current_line = []
-
-    for word in words:
-        test = " ".join(current_line + [word])
-        bbox = draw.textbbox((0, 0), test, font=font)
-        if bbox[2] - bbox[0] <= max_width or not current_line:
-            current_line.append(word)
-        else:
-            lines.append(" ".join(current_line))
-            current_line = [word]
-    if current_line:
-        lines.append(" ".join(current_line))
-
-    line_spacing = 12
-    line_bboxes = [draw.textbbox((0, 0), line, font=font) for line in lines]
-    line_heights = [b[3] - b[1] for b in line_bboxes]
-    total_height = sum(line_heights) + line_spacing * max(0, len(lines) - 1)
-
-    text_color = _parse_color_rgba(font_color)
-    outline_color = (0, 0, 0, 220)
-    outline_offset = 3
-
-    y = (video_h - total_height) // 2
-
-    for i, line in enumerate(lines):
-        text_w = line_bboxes[i][2] - line_bboxes[i][0]
-        x = (video_w - text_w) // 2
-
-        for dx in range(-outline_offset, outline_offset + 1):
-            for dy in range(-outline_offset, outline_offset + 1):
-                if dx != 0 or dy != 0:
-                    draw.text((x + dx, y + dy), line, font=font, fill=outline_color)
-
-        draw.text((x, y), line, font=font, fill=text_color)
-        y += line_heights[i] + line_spacing
-
-    return np.array(img)
+def _escape_text(text):
+    """Escape text for FFmpeg drawtext filter using backslash escaping (no surrounding quotes)."""
+    text = text.replace("\\", "\\\\")
+    text = text.replace("%", "%%")
+    text = text.replace("'", "\\'")
+    text = text.replace(":", "\\:")
+    text = text.replace(",", "\\,")
+    return text
 
 
-def _create_text_clip(text, video_w, video_h, font, font_color, start, duration):
-    frame = _make_text_frame(text, video_w, video_h, font, font_color)
-    rgb = frame[:, :, :3]
-    alpha = frame[:, :, 3].astype(float) / 255.0
-
-    clip = ImageClip(rgb, duration=duration).set_start(start)
-    mask = ImageClip(alpha, ismask=True, duration=duration).set_start(start)
-    return clip.set_mask(mask)
+def _font_opts(path):
+    """
+    Build FFmpeg drawtext fontfile option, stripping the Windows drive letter
+    so the path contains no colon (e.g. "C:/Windows/..." -> "/Windows/...").
+    On Windows, paths starting with "/" resolve to the current drive root.
+    """
+    fp = str(path).replace("\\", "/")
+    if len(fp) >= 2 and fp[1] == ":":
+        fp = fp[2:]
+    return f"fontfile={fp}"
 
 
 def compose_video(config, clip_path, tts_clips, video_duration):
     tts_config = config["tts"]
     output_config = config["output"]
 
-    print(f"Loading background clip: {clip_path}")
-    bg_clip = VideoFileClip(clip_path)
-    bg_clip = _resize_crop_vertical(bg_clip)
-    bg_clip = bg_clip.subclip(0, min(bg_clip.duration, video_duration))
-
-    video_w, video_h = bg_clip.w, bg_clip.h
-
     font_name = tts_config.get("font", "Arial")
     font_size = int(tts_config.get("fontSize", 70))
     font_color = tts_config.get("fontColor", "white")
+    preset = output_config.get("encodingPreset") or "medium"
+    threads = int(output_config.get("threads", 0))
+
     font_path = _find_font(font_name)
-
-    try:
-        font = ImageFont.truetype(font_path, font_size) if font_path else ImageFont.load_default()
-    except Exception:
-        font = ImageFont.load_default()
-
-    audio_clips = []
-    text_clips = []
-
-    for clip_info in tts_clips:
-        offset = clip_info["offset"]
-        audio_path = clip_info["audio_path"]
-        chunks = clip_info["tts_data"].get("chunks", [])
-
-        print(f"Loading TTS audio: {audio_path} (offset: {offset:.2f}s)")
-        audio = AudioFileClip(audio_path).set_start(offset)
-        audio_clips.append(audio)
-
-        for chunk in chunks:
-            abs_start = offset + chunk["start"]
-            abs_end = offset + chunk["end"]
-            if abs_start >= video_duration:
-                break
-            duration = max(0.05, min(abs_end, video_duration) - abs_start)
-            text_clips.append(
-                _create_text_clip(chunk["text"], video_w, video_h, font, font_color, abs_start, duration)
-            )
-
-    if audio_clips:
-        composite_audio = CompositeAudioClip(audio_clips).set_duration(video_duration)
-    else:
-        composite_audio = None
-
-    final = CompositeVideoClip([bg_clip] + text_clips).set_duration(video_duration)
-    if composite_audio:
-        final = final.set_audio(composite_audio)
+    ffmpeg_exe = _find_ffmpeg()
 
     results_dir = Path("results")
     results_dir.mkdir(parents=True, exist_ok=True)
-
     output_name = output_config.get("name", "") or "result_"
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     output_path = results_dir / f"{output_name}{timestamp}.mp4"
 
-    print(f"Writing final video: {output_path}")
-    final.write_videofile(
-        str(output_path),
-        codec="libx264",
-        audio_codec="aac",
-        fps=30,
-        logger="bar"
+    # inputs: background video first, then each TTS audio file
+    inputs = [clip_path] + [c["audio_path"] for c in tts_clips]
+
+    filter_parts = []
+
+    # video: scale to cover TARGET_WIDTH x TARGET_HEIGHT, then center-crop
+    video_chain = (
+        f"[0:v]"
+        f"scale={TARGET_WIDTH}:{TARGET_HEIGHT}:force_original_aspect_ratio=increase,"
+        f"crop={TARGET_WIDTH}:{TARGET_HEIGHT}:(iw-{TARGET_WIDTH})/2:(ih-{TARGET_HEIGHT})/2"
     )
 
-    bg_clip.close()
-    for a in audio_clips:
-        a.close()
+    # chain drawtext filter for each caption chunk
+    if font_path:
+        font_opt = _font_opts(font_path)
+    else:
+        font_opt = f"font={font_name}"
+
+    for clip_info in tts_clips:
+        offset = clip_info["offset"]
+        for chunk in clip_info["tts_data"].get("chunks", []):
+            abs_start = offset + chunk["start"]
+            abs_end = min(offset + chunk["end"], video_duration)
+            if abs_start >= video_duration:
+                break
+            video_chain += (
+                f",drawtext={font_opt}"
+                f":text={_escape_text(chunk['text'])}"
+                f":fontcolor={font_color}"
+                f":fontsize={font_size}"
+                f":x=(w-text_w)/2:y=(h-text_h)/2"
+                f":borderw=3:bordercolor=black@0.86"
+                f":enable='between(t,{abs_start:.3f},{abs_end:.3f})'"
+            )
+
+    video_chain += "[vout]"
+    filter_parts.append(video_chain)
+
+    # audio: adelay each clip to its offset, then mix
+    audio_map_args = []
+    if tts_clips:
+        if len(tts_clips) == 1:
+            offset_ms = int(tts_clips[0]["offset"] * 1000)
+            filter_parts.append(f"[1:a]adelay={offset_ms}|{offset_ms}[amix]")
+        else:
+            labels = []
+            for i, clip_info in enumerate(tts_clips):
+                offset_ms = int(clip_info["offset"] * 1000)
+                label = f"a{i}"
+                filter_parts.append(f"[{i + 1}:a]adelay={offset_ms}|{offset_ms}[{label}]")
+                labels.append(f"[{label}]")
+            n = len(labels)
+            filter_parts.append(
+                f"{''.join(labels)}amix=inputs={n}:duration=longest:normalize=0[amix]"
+            )
+        audio_map_args = ["-map", "[amix]", "-c:a", "aac"]
+
+    filter_complex = ";".join(filter_parts)
+
+    # build and run FFmpeg command
+    cmd = [ffmpeg_exe, "-y"]
+    for inp in inputs:
+        cmd += ["-i", str(inp)]
+    cmd += ["-filter_complex", filter_complex]
+    cmd += ["-map", "[vout]"]
+    cmd += audio_map_args
+    cmd += ["-c:v", "libx264", "-preset", preset]
+    if threads > 0:
+        cmd += ["-threads", str(threads)]
+    cmd += ["-loglevel", "error", "-stats"]
+    cmd += ["-t", f"{video_duration:.3f}", str(output_path)]
+
+    print(f"Writing final video: {output_path}")
+    print(f"Filter complex:\n{filter_complex}\n")
+
+    result = subprocess.run(cmd)
+    if result.returncode != 0:
+        raise RuntimeError(f"FFmpeg failed (exit {result.returncode}) — see output above.")
 
     print(f"Done! Output: {output_path}")
     return str(output_path)

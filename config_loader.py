@@ -24,7 +24,9 @@ DEFAULT_CONFIG = {
         "fontSize": 70
     },
     "output": {
-        "name": "result_"
+        "name": "result_",
+        "encodingPreset": "medium",
+        "threads": 0
     }
 }
 

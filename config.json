@@ -16,6 +16,8 @@
         "fontSize": 70
     },
     "output": {
-        "name": "result_"
+        "name": "result_",
+        "encodingPreset": "fast",
+        "threads": 4
     }
 }
