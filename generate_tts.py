@@ -1,7 +1,7 @@
-"""Standalone script to generate and cache TTS audio."""
+"""Standalone script to generate and cache one TTS audio clip."""
 
 from config_loader import load_config
-from tts_generator import generate_tts
+from tts_generator import generate_single_tts
 
 
 def main():
@@ -9,7 +9,11 @@ def main():
     config = load_config()
     config["tts"]["useSavedTts"] = False
 
-    audio_path, tts_data = generate_tts(config)
+    result = generate_single_tts(config)
+    if result is None:
+        return
+
+    audio_path, tts_data = result
     print(f"\nTTS cached: {audio_path}")
     print(f"Text: {tts_data['text']}")
     print(f"Chunks: {len(tts_data['chunks'])}")

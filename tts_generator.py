@@ -45,6 +45,16 @@ def _load_saved_clips(saved_dir):
     return clips
 
 
+def _build_text_cache(saved_dir):
+    """Returns a dict of {phrase_text: (audio_path, tts_data)} from saved clips."""
+    cache = {}
+    for audio_path, tts_data in _load_saved_clips(saved_dir):
+        text = tts_data.get("text", "")
+        if text:
+            cache[text] = (audio_path, tts_data)
+    return cache
+
+
 def _fill_clips(available_clips):
     """
     Picks clips randomly (no repeats) to fill up to MAX_VIDEO seconds.
@@ -147,8 +157,20 @@ def _save_tts_clip(audio_bytes, tts_data, saved_dir, prefix):
     return str(audio_path)
 
 
+def _call_elevenlabs(client, text, voice, model):
+    """Calls ElevenLabs TTS API with logging."""
+    print(f"Calling ElevenLabs API for: \"{text}\"")
+    response = client.text_to_speech.convert_with_timestamps(
+        voice_id=voice,
+        text=text,
+        model_id=model,
+    )
+    print(f"ElevenLabs API response received for: \"{text}\"")
+    return response
+
+
 def _generate_new_clips(config, saved_dir):
-    """Generate TTS clips from phrases until MAX_VIDEO is filled."""
+    """Generate TTS clips from phrases until MAX_VIDEO is filled, using cache where available."""
     tts_config = config["tts"]
     phrases_path = tts_config.get("phrasesPath", "")
 
@@ -166,6 +188,7 @@ def _generate_new_clips(config, saved_dir):
     client = ElevenLabs(api_key=api_key)
     saved_dir.mkdir(parents=True, exist_ok=True)
 
+    cache = _build_text_cache(saved_dir)
     shuffled_phrases = list(phrases)
     random.shuffle(shuffled_phrases)
 
@@ -177,19 +200,18 @@ def _generate_new_clips(config, saved_dir):
         if current_time + gap >= MAX_VIDEO:
             break
 
-        print(f"Generating TTS for: {text}")
-        response = client.text_to_speech.convert_with_timestamps(
-            voice_id=voice,
-            text=text,
-            model_id=model,
-        )
+        if text in cache:
+            print(f"Using cached TTS for: \"{text}\"")
+            audio_path, tts_data = cache[text]
+        else:
+            response = _call_elevenlabs(client, text, voice, model)
+            audio_bytes = base64.b64decode(response.audio_base_64)
+            word_timings = _extract_word_timings(text, response.alignment)
+            chunks = _chunk_words_dynamic(word_timings)
+            tts_data = {"text": text, "word_timings": word_timings, "chunks": chunks}
+            audio_path = _save_tts_clip(audio_bytes, tts_data, saved_dir, prefix)
+            cache[text] = (audio_path, tts_data)
 
-        audio_bytes = base64.b64decode(response.audio_base_64)
-        word_timings = _extract_word_timings(text, response.alignment)
-        chunks = _chunk_words_dynamic(word_timings)
-        tts_data = {"text": text, "word_timings": word_timings, "chunks": chunks}
-
-        audio_path = _save_tts_clip(audio_bytes, tts_data, saved_dir, prefix)
         duration = _get_audio_duration(audio_path)
 
         if current_time + gap + duration > MAX_VIDEO:
@@ -201,6 +223,51 @@ def _generate_new_clips(config, saved_dir):
         generated.append({"audio_path": audio_path, "tts_data": tts_data, "offset": offset})
 
     return generated, current_time
+
+
+def generate_single_tts(config):
+    """
+    Generates one TTS clip for an uncached phrase. Intended for standalone use.
+    Returns (audio_path, tts_data) or None if all phrases are already cached.
+    """
+    tts_config = config["tts"]
+    phrases_path = tts_config.get("phrasesPath", "")
+
+    with open(phrases_path, "r", encoding="utf-8") as f:
+        phrases = json.load(f)
+
+    if not phrases:
+        raise ValueError(f"Phrases file is empty: {phrases_path}")
+
+    saved_dir = _get_saved_tts_dir(config)
+    saved_dir.mkdir(parents=True, exist_ok=True)
+    cache = _build_text_cache(saved_dir)
+
+    shuffled = list(phrases)
+    random.shuffle(shuffled)
+
+    uncached = [p for p in shuffled if p not in cache]
+
+    if not uncached:
+        print("WARNING: All phrases are already cached. No new TTS generated.")
+        return None
+
+    text = uncached[0]
+    api_key = config.get("elevenlabs_api_key", "")
+    model = tts_config.get("model", "eleven_multilingual_v2")
+    voice = tts_config.get("voice", "JBFqnCBsd6RMkjVDRZzb")
+    prefix = tts_config.get("savedTtsPrefix", "")
+
+    client = ElevenLabs(api_key=api_key)
+    response = _call_elevenlabs(client, text, voice, model)
+
+    audio_bytes = base64.b64decode(response.audio_base_64)
+    word_timings = _extract_word_timings(text, response.alignment)
+    chunks = _chunk_words_dynamic(word_timings)
+    tts_data = {"text": text, "word_timings": word_timings, "chunks": chunks}
+
+    audio_path = _save_tts_clip(audio_bytes, tts_data, saved_dir, prefix)
+    return audio_path, tts_data
 
 
 def generate_tts(config):
