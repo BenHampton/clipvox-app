@@ -12,7 +12,7 @@ def main():
     config = load_config()
 
     print("--- Step 1: Background Clip ---")
-    clip_path = generate_clip(config)
+    clip_path, _ = generate_clip(config)
 
     print("\n--- Step 2: Text-to-Speech ---")
     tts_clips, video_duration = generate_tts(config)

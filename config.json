@@ -1,6 +1,6 @@
 {
     "backgroundVideo": {
-        "videoName": "minecraft_parkour.mp4",
+        "videoName": "minecraft_parkour/minecraft_parkour.mp4",
         "clipName": "saved_clip_",
         "useExistingClip": true,
         "existingClipName": ""

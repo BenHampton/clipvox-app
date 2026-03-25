@@ -26,14 +26,14 @@ ELEVENLABS_API_KEY=your_key_here
 
 ### 3. Add a background video
 
-Place an `.mp4` file (at least 60s long) in `background_videos/`.
+Place an `.mp4` file (at least 60s long) in a subdirectory under `background_videos/`. The subdirectory name should match the video's name, e.g. `background_videos/minecraft_parkour/minecraft_parkour.mp4`. Clips will be saved alongside the source video in a `clips/` subfolder.
 
 ### 4. Configure `config.json`
 
 ```json
 {
     "backgroundVideo": {
-        "videoName": "your_video.mp4",
+        "videoName": "your_subfolder/your_video.mp4",
         "clipName": "saved_clip_",
         "useExistingClip": true,
         "existingClipName": ""
@@ -64,12 +64,33 @@ python main.py
 
 Output videos are saved to `results/`.
 
+### Generate background clips manually
+
+```bash
+python generate_clip.py
+```
+
+Prompts for the number of clips to create (defaults to 1). Each clip is a random 60s segment from the source video, saved to `background_videos/<subfolder>/clips/` using stream copy (no re-encoding) for fast extraction.
+
+Clip filenames include the timestamp and start time, e.g. `saved_clip_20260324_143022_start_time_45.mp4`. If a filename collision occurs, up to 3 attempts are made with a new random start time before overwriting with a warning.
+
+At the end of the run a summary is printed:
+
+```
+=== Summary ===
+Clips requested:        3
+Clips created:          3
+Clips with collisions:  1
+```
+
 ## Project structure
 
 ```
 clipvox-app/
 ├── background_videos/          # Source videos and extracted clips
-│   └── clips/
+│   └── minecraft_parkour/
+│       ├── minecraft_parkour.mp4
+│       └── clips/
 ├── talk_to_speak/
 │   └── hannibal_lecter/
 │       ├── phrases.json        # List of phrases to speak
@@ -91,7 +112,7 @@ clipvox-app/
 
 | Key | Description |
 |-----|-------------|
-| `backgroundVideo.videoName` | Source `.mp4` filename in `background_videos/` |
+| `backgroundVideo.videoName` | Source `.mp4` path relative to `background_videos/`, e.g. `minecraft_parkour/minecraft_parkour.mp4` |
 | `backgroundVideo.useExistingClip` | Reuse the most recent saved clip instead of generating a new one |
 | `backgroundVideo.existingClipName` | Use a specific saved clip by name (falls back to most recent if not found) |
 | `tts.phrasesPath` | Path to a JSON array of phrases |
