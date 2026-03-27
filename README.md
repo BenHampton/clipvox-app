@@ -41,7 +41,7 @@ Place an `.mp4` file (at least 60s long) in a subdirectory under `background_vid
     "tts": {
         "model": "eleven_multilingual_v2",
         "voice": "JBFqnCBsd6RMkjVDRZzb",
-        "phrasesPath": "talk_to_speak/hannibal_lecter/phrases.json",
+        "phrasesPath": "talk_to_speak/creepy_ai/phrases.json",
         "useSavedTts": true,
         "savedTtsPrefix": "",
         "font": "Arial",
