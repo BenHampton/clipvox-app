@@ -120,5 +120,8 @@ background_videos/
 # Environment variables
 .env
 
+# YouTube OAuth token cache
+youtube_token/.youtube_token.json
+
 # MoviePy leftover temp files
 *TEMP_MPY_wvf_snd.mp4

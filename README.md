@@ -18,11 +18,15 @@ pip install -r requirements.txt
 
 ### 2. Configure your API key
 
-Copy `.env` and set your ElevenLabs API key:
+Copy `.env` and set your API keys:
 
 ```
 ELEVENLABS_API_KEY=your_key_here
+YOUTUBE_CLIENT_ID=your_client_id_here
+YOUTUBE_CLIENT_SECRET=your_client_secret_here
 ```
+
+To get YouTube credentials, create an OAuth 2.0 Client ID (Desktop app) in the [Google Cloud Console](https://console.cloud.google.com/) with the YouTube Data API v3 enabled. On first run, a browser window will open for authorization — the token is then cached in `.youtube_token.json` for subsequent runs.
 
 ### 3. Add a background video
 
@@ -99,13 +103,17 @@ clipvox-app/
 │               ├── *.mp3
 │               └── *.json
 ├── results/                    # Generated output videos
+│   └── uploaded/               # Videos moved here after successful upload
 ├── config.json
 ├── .env                        # API keys (never committed)
 ├── main.py
 ├── clip_generator.py
 ├── tts_generator.py
 ├── video_composer.py
-└── config_loader.py
+├── youtube_uploader.py
+├── config_loader.py
+└── youtube_token/
+    └── .youtube_token.json     # OAuth token cache (auto-generated, never commit)
 ```
 
 ## Config reference
@@ -122,12 +130,36 @@ clipvox-app/
 | `tts.font` / `tts.fontColor` / `tts.fontSize` | Caption styling |
 | `output.encodingPreset` | FFmpeg encoding preset (`ultrafast`, `fast`, `medium`, etc.) — defaults to `medium` |
 | `output.threads` | Number of encoding threads (0 = FFmpeg default) |
+| `youtube.uploadOnly` | When `true`, skip generation and upload a video from `results/` (default: `true`) |
+| `youtube.uploadCount` | Number of videos to upload per run when `uploadOnly` is true (default: `1`) |
+| `youtube.title` | YouTube video title |
+| `youtube.description` | YouTube video description |
+| `youtube.tags` | List of tags |
+| `youtube.categoryId` | YouTube category ID (e.g. `22` = People & Blogs) |
+| `youtube.privacyStatus` | `public`, `unlisted`, or `private` |
 
 ## TTS behavior
 
 - When `useSavedTts: true` — loads all clips from `saved_elevenlabs_tts/` and fills the video (45–60s) in random order with no repeats per run. Logs a warning if more than 15s of the video would be silent.
 - When `useSavedTts: false` — generates new TTS clips from the phrases file, saves them, and fills the video the same way.
 - Each saved TTS clip is stored in its own subdirectory named after the file.
+
+## Dependencies
+
+| Package | Used for |
+|---------|----------|
+| `python-dotenv` | Loads API keys from `.env` into the environment |
+| `elevenlabs` | ElevenLabs API client — generates TTS audio from phrases |
+| `moviepy` | Reads audio file duration for TTS clips (`AudioFileClip`) |
+| `imageio-ffmpeg` | Locates the bundled FFmpeg binary used for video processing |
+| `imageio` | Required by `imageio-ffmpeg` |
+| `Pillow` | Required by `moviepy` |
+| `numpy` | Required by `moviepy` |
+| `decorator` | Required by `moviepy` |
+| `proglog` | Required by `moviepy` |
+| `google-api-python-client` | YouTube Data API v3 client — uploads videos |
+| `google-auth-oauthlib` | OAuth 2.0 browser flow for Google API authorization |
+| `google-auth-httplib2` | HTTP transport layer for Google API authentication |
 
 ## Adding a new phrase set
 

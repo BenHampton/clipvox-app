@@ -19,5 +19,14 @@
         "name": "result_",
         "encodingPreset": "fast",
         "threads": 4
+    },
+    "youtube": {
+        "uploadOnly": true,
+        "uploadCount": 1,
+        "title": "Things AI Have Actually Said #Shorts",
+        "description": "",
+        "tags": ["Shorts"],
+        "categoryId": 24,
+        "privacyStatus": "public"
     }
 }
