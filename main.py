@@ -24,7 +24,6 @@ def _run_pipeline(config):
     print("\n--- Step 3: Composing Video ---")
     output_path = compose_video(config, clip_path, tts_clips, video_duration)
 
-    print(f"\nOutput: {output_path}")
     return output_path
 
 
