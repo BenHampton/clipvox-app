@@ -107,7 +107,7 @@ def compose_video(config, clip_path, tts_clips, video_duration):
                 f":fontsize={font_size}"
                 f":x=(w-text_w)/2:y=(h-text_h)/2"
                 f":borderw=3:bordercolor=black@0.86"
-                f":enable='between(t,{abs_start:.3f},{abs_end:.3f})'"
+                f":enable=between(t\\,{abs_start:.3f}\\,{abs_end:.3f})"
             )
 
     video_chain += "[vout]"

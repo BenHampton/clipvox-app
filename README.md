@@ -28,7 +28,7 @@ background_videos/  +  phrases.json
 ```
 
 1. **Background Clip** — extracts a random 60s segment from a source video in `background_videos/`, or reuses an existing saved clip
-2. **Text-to-Speech** — loads saved ElevenLabs TTS clips or generates new ones from a phrases file, filling the video duration (45–60s) with 0.5s gaps between clips
+2. **Text-to-Speech** — always plays a fixed intro clip first, then fills the remaining video duration (45–60s) with saved or newly-generated TTS phrases separated by configurable gaps (`phraseGap`, `introPhraseGap`)
 3. **Compose** — builds a single FFmpeg command that scales/crops the background to 9:16, mixes all TTS audio at their calculated offsets, and burns in synced word-by-word captions via the `drawtext` filter, then writes to `results/`
 4. **Upload** — authenticates with YouTube via OAuth 2.0 and uploads to Shorts; after a successful upload the video is moved to `results/uploaded/`
 
@@ -124,6 +124,30 @@ Generates and caches individual TTS clips from the configured phrases file. Stop
 How many clips to generate? (press Enter for 1):
 ```
 
+#### `--intro` flag
+
+```bash
+python generate_tts.py --intro
+```
+
+Sets up the intro TTS clip used at the start of every video. Reads `intro_phrase.json` from `<phrasesPath parent>/intro_tts/` and either promotes a cached clip or generates a new one from ElevenLabs.
+
+**`intro_phrase.json` format:**
+
+```json
+{"phrase": "Your intro text here."}
+```
+
+**Behavior:**
+
+1. Reads `intro_phrase.json` — exits with a clear message if missing or if the `phrase` key is absent
+2. Checks `saved_elevenlabs_tts/` for a cached clip matching the phrase
+3. **If cached** — moves it into `intro_tts/`; any existing `tts_elevenlabs_*` already in `intro_tts/` is moved back to `saved_elevenlabs_tts/` first
+4. **If not cached** — calls ElevenLabs to generate a new clip and saves it directly to `intro_tts/`; any existing `tts_elevenlabs_*` in `intro_tts/` is moved back to `saved_elevenlabs_tts/` first
+5. Exits with an error if more than one `tts_elevenlabs_*` dir is found in `intro_tts/` (requires manual cleanup)
+
+`intro_tts/` is created automatically if it does not exist.
+
 ---
 
 ## `config.json` reference
@@ -142,6 +166,8 @@ How many clips to generate? (press Enter for 1):
         "phrasesPath": "talk_to_speak/creepy_ai/phrases.json",
         "useSavedTts": true,
         "savedTtsPrefix": "",
+        "phraseGap": 0.5,
+        "introPhraseGap": 0.5,
         "font": "Arial",
         "fontColor": "white",
         "fontSize": 70
@@ -152,7 +178,8 @@ How many clips to generate? (press Enter for 1):
         "threads": 4
     },
     "youtube": {
-        "uploadOnly": true,
+        "upload": true,
+        "uploadOnly": false,
         "uploadCount": 1,
         "title": "Things AI Have Actually Said #Shorts",
         "description": "",
@@ -181,6 +208,8 @@ How many clips to generate? (press Enter for 1):
 | `phrasesPath` | string | Path to a JSON array of phrase strings |
 | `useSavedTts` | bool | `true` = use cached clips; `false` = call the API and cache results |
 | `savedTtsPrefix` | string | Only load cached clips whose filenames start with this prefix |
+| `phraseGap` | number | Seconds of silence between regular TTS phrases (default `0.5`) |
+| `introPhraseGap` | number | Seconds of silence between the intro phrase and the first regular phrase; falls back to `phraseGap` if empty or not set |
 | `font` | string | Caption font name (must be available to FFmpeg) |
 | `fontColor` | string | Caption color — any FFmpeg color string, e.g. `white`, `yellow` |
 | `fontSize` | number | Caption font size in pixels |
@@ -197,6 +226,7 @@ How many clips to generate? (press Enter for 1):
 
 | Key | Type | Description |
 |-----|------|-------------|
+| `upload` | bool | `false` = skip YouTube upload entirely, video is kept in `results/` (default `true`) |
 | `uploadOnly` | bool | `true` = skip generation, upload existing videos from `results/` |
 | `uploadCount` | number | Number of videos to upload per run when `uploadOnly` is `true` |
 | `title` | string | YouTube video title |
@@ -204,6 +234,36 @@ How many clips to generate? (press Enter for 1):
 | `tags` | array | List of tag strings |
 | `categoryId` | number | YouTube category ID (e.g. `22` = People & Blogs, `24` = Entertainment) |
 | `privacyStatus` | string | `public`, `unlisted`, or `private` |
+
+---
+
+## Intro phrase
+
+Every video starts with a fixed intro TTS clip. On each run, `main.py` automatically checks whether `intro_phrase.json` has changed and updates the intro clip if needed before compositing.
+
+The intro clip is loaded from `<phrasesPath parent>/intro_tts/`, which must contain:
+- `intro_phrase.json` — `{"phrase": "..."}` defining the intro text
+- One `tts_elevenlabs_*` subdirectory with an `.mp3` and matching `.json` (same format as `saved_elevenlabs_tts/` clips)
+
+If either is missing the program logs a clear error and exits — no video is generated. Run `python generate_tts.py --intro` to create or update the intro clip.
+
+After the intro plays, regular TTS phrases begin at `intro_duration + introPhraseGap` seconds.
+
+**Example layout for `talk_to_speak/creepy_ai/`:**
+
+```
+talk_to_speak/creepy_ai/
+├── phrases.json
+├── intro_tts/
+│   ├── intro_phrase.json           # {"phrase": "Your intro text here."}
+│   └── tts_elevenlabs_YYYYMMDD_HHMMSS/
+│       ├── tts_elevenlabs_YYYYMMDD_HHMMSS.mp3
+│       └── tts_elevenlabs_YYYYMMDD_HHMMSS.json
+└── saved_elevenlabs_tts/
+    └── tts_elevenlabs_YYYYMMDD_HHMMSS/
+        ├── tts_elevenlabs_YYYYMMDD_HHMMSS.mp3
+        └── tts_elevenlabs_YYYYMMDD_HHMMSS.json
+```
 
 ---
 
@@ -216,12 +276,18 @@ How many clips to generate? (press Enter for 1):
 
 ---
 
-## Upload-only mode
+## Upload behaviour
 
-When `youtube.uploadOnly` is `true` (the default), `main.py` skips video generation entirely and uploads the most recent `.mp4` files from `results/`, up to `uploadCount`.
+| `upload` | `uploadOnly` | Behaviour |
+|----------|-------------|-----------|
+| `true` | `false` | Generate a new video and upload it |
+| `true` | `true` | Skip generation, upload existing video(s) from `results/` |
+| `false` | `false` | Generate a new video, skip upload — file stays in `results/` |
+| `false` | `true` | Skip generation and upload — nothing happens |
 
-- If `results/` is **empty**, the pipeline runs automatically to generate one video, which is then uploaded immediately. A prominent notice is printed at the end.
-- After each successful upload the video file is moved to `results/uploaded/` to prevent re-uploading.
+When `uploadOnly` is `true` and `results/` is **empty**, the pipeline runs automatically to generate one video, which is then uploaded immediately. A prominent notice is printed at the end.
+
+After each successful upload the video file is moved to `results/uploaded/` to prevent re-uploading.
 
 ---
 
@@ -249,6 +315,11 @@ clipvox-app/
 ├── talk_to_speak/
 │   └── creepy_ai/
 │       ├── phrases.json            # JSON array of phrases
+│       ├── intro_tts/              # Required: one tts_elevenlabs_* clip + intro_phrase.json
+│       │   ├── intro_phrase.json   # {"phrase": "..."} — defines the intro text
+│       │   └── tts_elevenlabs_YYYYMMDD_HHMMSS/
+│       │       ├── tts_elevenlabs_YYYYMMDD_HHMMSS.mp3
+│       │       └── tts_elevenlabs_YYYYMMDD_HHMMSS.json
 │       └── saved_elevenlabs_tts/
 │           └── tts_elevenlabs_YYYYMMDD_HHMMSS/
 │               ├── tts_elevenlabs_YYYYMMDD_HHMMSS.mp3

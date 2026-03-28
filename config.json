@@ -11,6 +11,8 @@
         "phrasesPath": "talk_to_speak/creepy_ai/phrases.json",
         "useSavedTts": true,
         "savedTtsPrefix": "",
+        "phraseGap": 0.5,
+        "introPhraseGap": 0.5,
         "font": "Arial",
         "fontColor": "white",
         "fontSize": 70
@@ -21,7 +23,8 @@
         "threads": 4
     },
     "youtube": {
-        "uploadOnly": true,
+        "upload": true,
+        "uploadOnly": false,
         "uploadCount": 1,
         "title": "Things AI Have Actually Said #Shorts",
         "description": "",

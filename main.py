@@ -4,7 +4,7 @@ from pathlib import Path
 
 from config_loader import load_config
 from clip_generator import generate_clip
-from tts_generator import generate_tts
+from tts_generator import generate_tts, generate_intro_tts
 from video_composer import compose_video
 from youtube_uploader import YouTubeUploader
 
@@ -18,6 +18,7 @@ def _run_pipeline(config):
     clip_path, _ = generate_clip(config)
 
     print("\n--- Step 2: Text-to-Speech ---")
+    generate_intro_tts(config)
     tts_clips, video_duration = generate_tts(config)
 
     print("\n--- Step 3: Composing Video ---")
@@ -40,6 +41,7 @@ def main():
 
     config = load_config()
     yt_config = config.get("youtube", {})
+    should_upload = yt_config.get("upload", True)
     upload_only = yt_config.get("uploadOnly", True)
     upload_count = yt_config.get("uploadCount", 1)
 
@@ -62,7 +64,10 @@ def main():
         output_path = _run_pipeline(config)
         videos = [Path(output_path)]
 
-    _run_upload(config, videos)
+    if should_upload:
+        _run_upload(config, videos)
+    else:
+        print("\nUpload skipped (youtube.upload is false).")
 
     print("\n=== Complete! ===")
 

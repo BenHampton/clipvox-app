@@ -114,6 +114,7 @@ Thumbs.db
 
 # Project-specific generated files
 **/saved_elevenlabs_tts/
+**/intro_tts/
 results/
 background_videos/
 
