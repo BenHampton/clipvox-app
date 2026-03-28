@@ -11,7 +11,7 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 
 SCOPES = ["https://www.googleapis.com/auth/youtube.upload"]
-TOKEN_FILE = "youtube_token/.youtube_token.json"
+TOKEN_FILE = ".youtube_token.json"
 
 
 class YouTubeUploader:
