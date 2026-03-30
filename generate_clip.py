@@ -21,7 +21,7 @@ def main():
     for i in range(count):
         if count > 1:
             print(f"\n--- Generating clip {i + 1} of {count} ---")
-        clip_path, had_collision = generate_clip(config)
+        clip_path, _, had_collision = generate_clip(config)
         if clip_path:
             created += 1
         if had_collision:

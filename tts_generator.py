@@ -117,9 +117,9 @@ def _build_text_cache(saved_dir):
     return cache
 
 
-def _fill_clips(available_clips, gap, start_time=0.0):
+def _fill_clips(available_clips, gap, start_time=0.0, max_video=MAX_VIDEO):
     """
-    Picks clips randomly (no repeats) to fill up to MAX_VIDEO seconds.
+    Picks clips randomly (no repeats) to fill up to max_video seconds.
     Returns (used_clips, tts_end_time) where used_clips is a list of
     {"audio_path", "tts_data", "offset"} dicts.
     """
@@ -132,7 +132,7 @@ def _fill_clips(available_clips, gap, start_time=0.0):
     for audio_path, tts_data in shuffled:
         duration = _get_audio_duration(audio_path)
         extra_gap = gap if used else 0.0
-        if current_time + extra_gap + duration > MAX_VIDEO:
+        if current_time + extra_gap + duration > max_video:
             break
         offset = current_time + extra_gap
         current_time = offset + duration
@@ -231,8 +231,8 @@ def _call_elevenlabs(client, text, voice, model):
     return response
 
 
-def _generate_new_clips(config, saved_dir, gap, start_time=0.0):
-    """Generate TTS clips from phrases until MAX_VIDEO is filled, using cache where available."""
+def _generate_new_clips(config, saved_dir, gap, start_time=0.0, max_video=MAX_VIDEO):
+    """Generate TTS clips from phrases until max_video is filled, using cache where available."""
     tts_config = config["tts"]
     phrases_path = tts_config.get("phrasesPath", "")
 
@@ -255,16 +255,18 @@ def _generate_new_clips(config, saved_dir, gap, start_time=0.0):
     random.shuffle(shuffled_phrases)
 
     generated = []
+    api_count = 0
     current_time = start_time
 
     for text in shuffled_phrases:
         extra_gap = gap if generated else 0.0
-        if current_time + extra_gap >= MAX_VIDEO:
+        if current_time + extra_gap >= max_video:
             break
 
         if text in cache:
             print(f"Using cached TTS for: \"{text}\"")
             audio_path, tts_data = cache[text]
+            api_calls_made = False
         else:
             response = _call_elevenlabs(client, text, voice, model)
             audio_bytes = base64.b64decode(response.audio_base_64)
@@ -273,18 +275,21 @@ def _generate_new_clips(config, saved_dir, gap, start_time=0.0):
             tts_data = {"text": text, "word_timings": word_timings, "chunks": chunks}
             audio_path = _save_tts_clip(audio_bytes, tts_data, saved_dir, prefix)
             cache[text] = (audio_path, tts_data)
+            api_calls_made = True
 
         duration = _get_audio_duration(audio_path)
 
-        if current_time + extra_gap + duration > MAX_VIDEO:
-            print(f"Clip would exceed {MAX_VIDEO}s limit, stopping.")
+        if current_time + extra_gap + duration > max_video:
+            print(f"Clip would exceed {max_video:.0f}s limit, stopping.")
             break
 
         offset = current_time + extra_gap
         current_time = offset + duration
         generated.append({"audio_path": audio_path, "tts_data": tts_data, "offset": offset})
+        if api_calls_made:
+            api_count += 1
 
-    return generated, current_time
+    return generated, current_time, api_count
 
 
 def generate_single_tts(config):
@@ -335,6 +340,9 @@ def generate_single_tts(config):
 def generate_tts(config):
     tts_config = config["tts"]
 
+    max_video = float(config.get("backgroundVideo", {}).get("backgroundVideoLength", MAX_VIDEO))
+    min_video = max_video * 0.75
+
     phrase_gap = float(tts_config.get("phraseGap", 0.5))
     intro_phrase_gap_val = tts_config.get("introPhraseGap")
     if intro_phrase_gap_val is None or intro_phrase_gap_val == "":
@@ -356,15 +364,16 @@ def generate_tts(config):
         available = _load_saved_clips(saved_dir)
         if not available:
             print(f"WARNING: useSavedTts is true but no saved clips found in: {saved_dir}")
-            used_clips, tts_end = [], regular_start
+            used_clips, tts_end, api_count = [], regular_start, 0
         else:
             print(f"Found {len(available)} saved TTS clip(s).")
-            used_clips, tts_end = _fill_clips(available, phrase_gap, regular_start)
+            used_clips, tts_end = _fill_clips(available, phrase_gap, regular_start, max_video)
+            api_count = 0
     else:
-        used_clips, tts_end = _generate_new_clips(config, saved_dir, phrase_gap, regular_start)
+        used_clips, tts_end, api_count = _generate_new_clips(config, saved_dir, phrase_gap, regular_start, max_video)
 
     all_clips = [intro_clip] + used_clips
-    video_duration = max(MIN_VIDEO, tts_end)
+    video_duration = max(min_video, tts_end)
     unfilled = video_duration - tts_end
 
     if unfilled > 15:
@@ -374,7 +383,7 @@ def generate_tts(config):
         )
 
     print(f"Using {len(all_clips)} TTS clip(s) (1 intro + {len(used_clips)} regular), video duration: {video_duration:.1f}s")
-    return all_clips, video_duration
+    return all_clips, video_duration, api_count
 
 
 def generate_intro_tts(config):
@@ -417,7 +426,7 @@ def generate_intro_tts(config):
     current_text = _get_current_intro_text(intro_dir)
     if current_text == phrase:
         print(f"Intro TTS is up to date — phrase unchanged.")
-        return
+        return "unchanged"
 
     if current_text is not None:
         print(f"Intro phrase has changed — updating intro TTS.")
@@ -455,6 +464,10 @@ def generate_intro_tts(config):
         dest = intro_dir / cached_clip_dir.name
         shutil.move(str(cached_clip_dir), str(dest))
         print(f"Promoted cached clip to intro_tts/: {dest.name}")
+
+        print(f"\nIntro phrase: \"{phrase}\"")
+        print("Intro TTS is set up and ready — videos will now start with this clip.")
+        return "cached"
     else:
         # Move existing intro clip back to saved_elevenlabs_tts/ before generating
         if existing_intro_clip:
@@ -480,5 +493,6 @@ def generate_intro_tts(config):
         audio_path = _save_tts_clip(audio_bytes, tts_data, intro_dir, prefix)
         print(f"New intro TTS saved: {audio_path}")
 
-    print(f"\nIntro phrase: \"{phrase}\"")
-    print("Intro TTS is set up and ready — videos will now start with this clip.")
+        print(f"\nIntro phrase: \"{phrase}\"")
+        print("Intro TTS is set up and ready — videos will now start with this clip.")
+        return "api"

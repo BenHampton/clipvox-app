@@ -1,5 +1,6 @@
 """Full pipeline: background clip + TTS + compose final video."""
 
+import argparse
 from pathlib import Path
 
 from config_loader import load_config
@@ -15,14 +16,40 @@ def _get_result_videos(results_dir):
 
 def _run_pipeline(config):
     print("--- Step 1: Background Clip ---")
-    clip_path, _ = generate_clip(config)
+    clip_path, clip_from_cache, _ = generate_clip(config)
 
     print("\n--- Step 2: Text-to-Speech ---")
-    generate_intro_tts(config)
-    tts_clips, video_duration = generate_tts(config)
+    intro_status = generate_intro_tts(config)
+    tts_clips, video_duration, tts_api_count = generate_tts(config)
 
     print("\n--- Step 3: Composing Video ---")
-    output_path = compose_video(config, clip_path, tts_clips, video_duration)
+    output_path, bg_audio_from_cache = compose_video(config, clip_path, tts_clips, video_duration)
+
+    ba_config = config.get("backgroundAudio", {})
+    include_audio = ba_config.get("includeAudio", False)
+
+    if include_audio:
+        audio_source = ba_config.get("audioPath", "")
+        audio_cache_label = "cached trim" if bg_audio_from_cache else "new trim"
+        audio_line = f"{audio_source}  ({audio_cache_label})"
+    else:
+        audio_line = "disabled"
+
+    if intro_status == "unchanged":
+        intro_label = "cached  (phrase unchanged)"
+    elif intro_status == "cached":
+        intro_label = "promoted from cache  (no API call)"
+    else:
+        intro_label = "generated via ElevenLabs API"
+
+    tts_cache_label = "all cached" if tts_api_count == 0 else f"{tts_api_count} ElevenLabs API call(s)"
+
+    print("\n--- Summary ---")
+    print(f"  • Background clip:  {clip_path}  ({'cached' if clip_from_cache else 'newly extracted'})")
+    print(f"  • Intro TTS:        {intro_label}")
+    print(f"  • TTS clips:        {len(tts_clips)} clip(s)  |  {video_duration:.2f}s  |  {tts_cache_label}")
+    print(f"  • Background audio: {audio_line}")
+    print(f"  • Output:           {output_path}")
 
     return output_path
 
@@ -36,12 +63,17 @@ def _run_upload(config, videos):
 
 
 def main():
+    parser = argparse.ArgumentParser(description="ClipVox video pipeline")
+    parser.add_argument("--upload", action="store_true",
+                        help="Skip generation and upload existing videos from results/")
+    args = parser.parse_args()
+
     print("=== ClipVox Generator ===\n")
 
     config = load_config()
     yt_config = config.get("youtube", {})
-    should_upload = yt_config.get("upload", True)
-    upload_only = yt_config.get("uploadOnly", True)
+    should_upload = yt_config.get("shouldUpload", True)
+    upload_only = args.upload
     upload_count = yt_config.get("uploadCount", 1)
 
     results_dir = Path("results")
@@ -63,10 +95,10 @@ def main():
         output_path = _run_pipeline(config)
         videos = [Path(output_path)]
 
-    if should_upload:
+    if upload_only or should_upload:
         _run_upload(config, videos)
     else:
-        print("\nUpload skipped (youtube.upload is false).")
+        print("\nUpload skipped (youtube.shouldUpload is false).")
 
     print("\n=== Complete! ===")
 

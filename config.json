@@ -2,8 +2,16 @@
     "backgroundVideo": {
         "videoName": "minecraft_parkour/minecraft_parkour.mp4",
         "clipName": "saved_clip_",
+        "backgroundVideoLength": 60,
         "useExistingClip": true,
         "existingClipName": ""
+    },
+    "backgroundAudio": {
+        "includeAudio": true,
+        "audioPath": "background_sounds/viking_build_up.mp3",
+        "audioStartTime": 15,
+        "backgroundAudioVolume": 0.1,
+        "ttsAudioVolume": 1.0
     },
     "tts": {
         "model": "eleven_multilingual_v2",
@@ -13,7 +21,7 @@
         "useSavedTts": true,
         "savedTtsPrefix": "",
         "phraseGap": 0.5,
-        "introPhraseGap": 0.5,
+        "introPhraseGap": 0.8,
         "font": "Arial",
         "fontColor": "white",
         "fontSize": 70
@@ -24,8 +32,7 @@
         "threads": 4
     },
     "youtube": {
-        "upload": false,
-        "uploadOnly": false,
+        "shouldUpload": true,
         "uploadCount": 1,
         "title": "Things AI Have Actually Said #Shorts",
         "description": "",

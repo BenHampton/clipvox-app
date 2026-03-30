@@ -6,6 +6,8 @@ from pathlib import Path
 
 import imageio_ffmpeg
 
+from background_audio import BackgroundAudio
+
 TARGET_WIDTH = 1080
 TARGET_HEIGHT = 1920
 
@@ -59,12 +61,20 @@ def _font_opts(path):
 def compose_video(config, clip_path, tts_clips, video_duration):
     tts_config = config["tts"]
     output_config = config["output"]
+    ba_config = config.get("backgroundAudio", {})
 
     font_name = tts_config.get("font", "Arial")
     font_size = int(tts_config.get("fontSize", 70))
     font_color = tts_config.get("fontColor", "white")
     preset = output_config.get("encodingPreset") or "medium"
     threads = int(output_config.get("threads", 0))
+
+    include_audio = ba_config.get("includeAudio", False)
+    bg_audio_path = None
+    bg_audio_from_cache = None
+    if include_audio:
+        print("\n--- Background Audio ---")
+        bg_audio_path, bg_audio_from_cache = BackgroundAudio(config).get_trimmed_audio(video_duration)
 
     font_path = _find_font(font_name)
     ffmpeg_exe = _find_ffmpeg()
@@ -75,8 +85,10 @@ def compose_video(config, clip_path, tts_clips, video_duration):
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     output_path = results_dir / f"{output_name}{timestamp}.mp4"
 
-    # inputs: background video first, then each TTS audio file
+    # inputs: background video, TTS audio files, then background audio (if enabled)
     inputs = [clip_path] + [c["audio_path"] for c in tts_clips]
+    if bg_audio_path:
+        inputs.append(bg_audio_path)
 
     filter_parts = []
 
@@ -113,12 +125,14 @@ def compose_video(config, clip_path, tts_clips, video_duration):
     video_chain += "[vout]"
     filter_parts.append(video_chain)
 
-    # audio: adelay each clip to its offset, then mix
+    # audio: adelay each TTS clip to its offset, then mix
     audio_map_args = []
+    tts_mix_label = "tts_amix" if (include_audio and bg_audio_path) else "amix"
+
     if tts_clips:
         if len(tts_clips) == 1:
             offset_ms = int(tts_clips[0]["offset"] * 1000)
-            filter_parts.append(f"[1:a]adelay={offset_ms}|{offset_ms}[amix]")
+            filter_parts.append(f"[1:a]adelay={offset_ms}|{offset_ms}[{tts_mix_label}]")
         else:
             labels = []
             for i, clip_info in enumerate(tts_clips):
@@ -128,8 +142,23 @@ def compose_video(config, clip_path, tts_clips, video_duration):
                 labels.append(f"[{label}]")
             n = len(labels)
             filter_parts.append(
-                f"{''.join(labels)}amix=inputs={n}:duration=longest:normalize=0[amix]"
+                f"{''.join(labels)}amix=inputs={n}:duration=longest:normalize=0[{tts_mix_label}]"
             )
+
+    if include_audio and bg_audio_path:
+        bg_input_idx = len(tts_clips) + 1
+        tts_vol = float(ba_config.get("ttsAudioVolume", 1.0))
+        bg_vol = float(ba_config.get("backgroundAudioVolume", 0.3))
+        if tts_clips:
+            filter_parts.append(f"[tts_amix]volume={tts_vol}[tts_vol]")
+            filter_parts.append(f"[{bg_input_idx}:a]volume={bg_vol}[bg_vol]")
+            filter_parts.append(
+                f"[tts_vol][bg_vol]amix=inputs=2:duration=longest:normalize=0[amix]"
+            )
+        else:
+            filter_parts.append(f"[{bg_input_idx}:a]volume={bg_vol}[amix]")
+
+    if tts_clips or (include_audio and bg_audio_path):
         audio_map_args = ["-map", "[amix]", "-c:a", "aac"]
 
     filter_complex = ";".join(filter_parts)
@@ -155,4 +184,4 @@ def compose_video(config, clip_path, tts_clips, video_duration):
         raise RuntimeError(f"FFmpeg failed (exit {result.returncode}) — see output above.")
 
     print(f"Done! Output: {output_path}")
-    return str(output_path)
+    return str(output_path), bg_audio_from_cache

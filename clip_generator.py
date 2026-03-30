@@ -62,7 +62,7 @@ def generate_clip(config):
         existing = _get_existing_clip(config)
         if existing:
             print(f"Using existing clip: {existing}")
-            return existing, False
+            return existing, True, False
         print("No existing clips found, generating new clip...")
 
     if not video_name:
@@ -74,11 +74,11 @@ def generate_clip(config):
 
     ffmpeg_exe = _find_ffmpeg()
 
-    clip_length = 60
+    clip_length = int(bg_config.get("backgroundVideoLength", 60))
     duration = _get_video_duration(ffmpeg_exe, video_path)
     if duration < clip_length:
         raise ValueError(
-            f"Background video is too short ({duration:.1f}s). Must be at least 60 seconds."
+            f"Background video is too short ({duration:.1f}s). Must be at least {clip_length} seconds."
         )
 
     max_start = duration - clip_length
@@ -112,6 +112,6 @@ def generate_clip(config):
             ],
             check=True,
         )
-        return str(output_path), had_collision
+        return str(output_path), False, had_collision
 
-    return None, had_collision
+    return None, False, had_collision

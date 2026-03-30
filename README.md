@@ -98,7 +98,8 @@ Extracted clips are saved to `background_videos/<subfolder>/clips/` using stream
 
 | Script | What it does |
 |--------|-------------|
-| `python main.py` | Full pipeline or upload-only, depending on `youtube.uploadOnly` |
+| `python main.py` | Full pipeline: generate a new video and optionally upload it |
+| `python main.py --upload` | Skip generation, upload existing video(s) from `results/` |
 | `python generate_clip.py` | Extract one or more background clips without running TTS or compositing |
 | `python generate_tts.py` | Pre-generate and cache TTS clips without compositing a video |
 
@@ -157,6 +158,7 @@ Sets up the intro TTS clip used at the start of every video. Reads `intro_phrase
     "backgroundVideo": {
         "videoName": "minecraft_parkour/minecraft_parkour.mp4",
         "clipName": "saved_clip_",
+        "backgroundVideoLength": 60,
         "useExistingClip": true,
         "existingClipName": ""
     },
@@ -178,6 +180,13 @@ Sets up the intro TTS clip used at the start of every video. Reads `intro_phrase
         "encodingPreset": "fast",
         "threads": 4
     },
+    "backgroundAudio": {
+        "includeAudio": false,
+        "audioPath": "background_sounds/your_music.mp3",
+        "audioStartTime": 0,
+        "backgroundAudioVolume": 0.3,
+        "ttsAudioVolume": 1.0
+    },
     "youtube": {
         "upload": true,
         "uploadOnly": false,
@@ -197,6 +206,7 @@ Sets up the intro TTS clip used at the start of every video. Reads `intro_phrase
 |-----|------|-------------|
 | `videoName` | string | Source `.mp4` path relative to `background_videos/`, e.g. `minecraft_parkour/minecraft_parkour.mp4` |
 | `clipName` | string | Filename prefix for newly extracted clips |
+| `backgroundVideoLength` | number | Duration in seconds for extracted clips and TTS max fill (default `60`) |
 | `useExistingClip` | bool | When `true`, reuses the most recent saved clip instead of generating a new one |
 | `existingClipName` | string | Use a specific saved clip by name; falls back to most recent if not found |
 
@@ -224,13 +234,26 @@ Sets up the intro TTS clip used at the start of every video. Reads `intro_phrase
 | `encodingPreset` | string | FFmpeg preset: `ultrafast`, `superfast`, `veryfast`, `faster`, `fast`, `medium`, `slow`, `slower`, `veryslow` |
 | `threads` | number | Encoding threads (0 = FFmpeg default) |
 
+### `backgroundAudio`
+
+| Key | Type | Description |
+|-----|------|-------------|
+| `includeAudio` | bool | `true` = mix a background music track into the final video |
+| `audioPath` | string | Path to the source `.mp3` under `background_sounds/` |
+| `audioStartTime` | number | Start offset in seconds from the source file to begin the trim (default `0`) |
+| `backgroundAudioVolume` | number | Volume of the background music relative to full (e.g. `0.3` = 30%) |
+| `ttsAudioVolume` | number | Volume of the TTS voices when mixed with background audio (default `1.0`) |
+
+The source audio is trimmed from `audioStartTime` to `audioStartTime + video_duration` to exactly match the final video length. Trimmed files are cached in `background_sounds/trimmed_audio/` and reused on subsequent runs when the source filename and duration match.
+
+Trimmed filename format: `{source}_{duration}_{startTime}_{stopTime}_{timestamp}.mp3`
+
 ### `youtube`
 
 | Key | Type | Description |
 |-----|------|-------------|
-| `upload` | bool | `false` = skip YouTube upload entirely, video is kept in `results/` (default `true`) |
-| `uploadOnly` | bool | `true` = skip generation, upload existing videos from `results/` |
-| `uploadCount` | number | Number of videos to upload per run when `uploadOnly` is `true` |
+| `shouldUpload` | bool | `false` = skip YouTube upload entirely, video is kept in `results/` (default `true`) |
+| `uploadCount` | number | Number of videos to upload per run when `--upload` is passed |
 | `title` | string | YouTube video title |
 | `description` | string | YouTube video description |
 | `tags` | array | List of tag strings |
@@ -280,14 +303,15 @@ talk_to_speak/creepy_ai/
 
 ## Upload behaviour
 
-| `upload` | `uploadOnly` | Behaviour |
-|----------|-------------|-----------|
-| `true` | `false` | Generate a new video and upload it |
-| `true` | `true` | Skip generation, upload existing video(s) from `results/` |
-| `false` | `false` | Generate a new video, skip upload — file stays in `results/` |
-| `false` | `true` | Skip generation and upload — nothing happens |
+| Command | `shouldUpload` | Behaviour |
+|---------|------------|-----------|
+| `python main.py` | `true` | Generate a new video and upload it |
+| `python main.py` | `false` | Generate a new video, skip upload — file stays in `results/` |
+| `python main.py --upload` | any | Skip generation, upload existing video(s) from `results/` |
 
-When `uploadOnly` is `true` and `results/` is **empty**, the pipeline runs automatically to generate one video, which is then uploaded immediately. A prominent notice is printed at the end.
+> `--upload` always triggers an upload regardless of the `shouldUpload` config flag.
+
+When `--upload` is passed and `results/` is **empty**, the pipeline runs automatically to generate one video, which is then uploaded immediately. A prominent notice is printed at the end.
 
 After each successful upload the video file is moved to `results/uploaded/` to prevent re-uploading.
 
@@ -326,6 +350,9 @@ clipvox-app/
 │           └── tts_elevenlabs_YYYYMMDD_HHMMSS/
 │               ├── tts_elevenlabs_YYYYMMDD_HHMMSS.mp3
 │               └── tts_elevenlabs_YYYYMMDD_HHMMSS.json  # word chunks + metadata
+├── background_sounds/              # Source music files
+│   ├── your_music.mp3
+│   └── trimmed_audio/              # Auto-generated trims (cached, never committed)
 ├── results/                        # Generated output videos
 │   └── uploaded/                   # Videos moved here after successful upload
 ├── config.json
@@ -337,6 +364,7 @@ clipvox-app/
 ├── clip_generator.py
 ├── tts_generator.py
 ├── video_composer.py
+├── background_audio.py
 ├── youtube_uploader.py
 └── config_loader.py
 ```
