@@ -1,7 +1,9 @@
 """Isolated YouTube upload class for ClipVox."""
 
+import json
 import os
 import shutil
+from datetime import datetime, timezone
 from pathlib import Path
 
 from google.oauth2.credentials import Credentials
@@ -27,7 +29,29 @@ class YouTubeUploader:
 
         self._service = self._build_service()
 
+    def _check_token_expiry(self):
+        """Reads the expiry field from the token file and logs whether it is still valid."""
+        token_path = Path(TOKEN_FILE)
+        if not token_path.exists():
+            return
+        try:
+            data = json.loads(token_path.read_text())
+            expiry_str = data.get("expiry")
+            if not expiry_str:
+                return
+            expiry = datetime.fromisoformat(expiry_str.replace("Z", "+00:00"))
+            now = datetime.now(timezone.utc)
+            if now >= expiry:
+                print(f"YouTube token expired at {expiry.strftime('%Y-%m-%d %H:%M:%S UTC')} — refreshing...")
+            else:
+                remaining = int((expiry - now).total_seconds() / 60)
+                print(f"YouTube token valid for ~{remaining} more minute(s).")
+        except Exception:
+            pass
+
     def _build_service(self):
+        self._check_token_expiry()
+
         creds = None
 
         if Path(TOKEN_FILE).exists():
@@ -36,7 +60,9 @@ class YouTubeUploader:
         if not creds or not creds.valid:
             if creds and creds.expired and creds.refresh_token:
                 creds.refresh(Request())
+                print("YouTube token refreshed.")
             else:
+                print("No valid YouTube token found — starting browser authentication...")
                 client_config = {
                     "installed": {
                         "client_id": self._client_id,
@@ -50,6 +76,7 @@ class YouTubeUploader:
                 creds = flow.run_local_server(port=0)
 
             Path(TOKEN_FILE).write_text(creds.to_json())
+            print(f"YouTube token saved to {TOKEN_FILE}.")
 
         return build("youtube", "v3", credentials=creds)
 
