@@ -15,7 +15,7 @@ DEFAULT_CONFIG = {
     },
     "tts": {
         "model": "eleven_multilingual_v2",
-        "voice": "JBFqnCBsd6RMkjVDRZzb",
+        "voiceId": "JBFqnCBsd6RMkjVDRZzb",
         "phrasesPath": "talk_to_speak/creepy_ai/phrases.json",
         "useSavedTts": False,
         "savedTtsPrefix": "",

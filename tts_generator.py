@@ -244,7 +244,7 @@ def _generate_new_clips(config, saved_dir, gap, start_time=0.0):
 
     api_key = config.get("elevenlabs_api_key", "")
     model = tts_config.get("model", "eleven_multilingual_v2")
-    voice = tts_config.get("voice", "JBFqnCBsd6RMkjVDRZzb")
+    voice = tts_config.get("voiceId", "JBFqnCBsd6RMkjVDRZzb")
     prefix = tts_config.get("savedTtsPrefix", "")
 
     client = ElevenLabs(api_key=api_key)
@@ -317,7 +317,7 @@ def generate_single_tts(config):
     text = uncached[0]
     api_key = config.get("elevenlabs_api_key", "")
     model = tts_config.get("model", "eleven_multilingual_v2")
-    voice = tts_config.get("voice", "JBFqnCBsd6RMkjVDRZzb")
+    voice = tts_config.get("voiceId", "JBFqnCBsd6RMkjVDRZzb")
     prefix = tts_config.get("savedTtsPrefix", "")
 
     client = ElevenLabs(api_key=api_key)
@@ -466,7 +466,7 @@ def generate_intro_tts(config):
         # Generate new TTS from ElevenLabs
         api_key = config.get("elevenlabs_api_key", "")
         model = tts_config.get("model", "eleven_multilingual_v2")
-        voice = tts_config.get("voice", "JBFqnCBsd6RMkjVDRZzb")
+        voice = tts_config.get("introVoiceId") or tts_config.get("voiceId", "JBFqnCBsd6RMkjVDRZzb")
         prefix = tts_config.get("savedTtsPrefix", "")
 
         client = ElevenLabs(api_key=api_key)

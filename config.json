@@ -7,7 +7,8 @@
     },
     "tts": {
         "model": "eleven_multilingual_v2",
-        "voice": "JBFqnCBsd6RMkjVDRZzb",
+        "voiceId": "ybjoxm7ASLDUFh2pC2eM",
+        "introVoiceId": "JBFqnCBsd6RMkjVDRZzb",
         "phrasesPath": "talk_to_speak/creepy_ai/phrases.json",
         "useSavedTts": true,
         "savedTtsPrefix": "",
@@ -23,7 +24,7 @@
         "threads": 4
     },
     "youtube": {
-        "upload": true,
+        "upload": false,
         "uploadOnly": false,
         "uploadCount": 1,
         "title": "Things AI Have Actually Said #Shorts",

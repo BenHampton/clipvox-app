@@ -162,7 +162,8 @@ Sets up the intro TTS clip used at the start of every video. Reads `intro_phrase
     },
     "tts": {
         "model": "eleven_multilingual_v2",
-        "voice": "JBFqnCBsd6RMkjVDRZzb",
+        "voiceId": "JBFqnCBsd6RMkjVDRZzb",
+        "introVoiceId": "JBFqnCBsd6RMkjVDRZzb",
         "phrasesPath": "talk_to_speak/creepy_ai/phrases.json",
         "useSavedTts": true,
         "savedTtsPrefix": "",
@@ -204,7 +205,8 @@ Sets up the intro TTS clip used at the start of every video. Reads `intro_phrase
 | Key | Type | Description |
 |-----|------|-------------|
 | `model` | string | ElevenLabs model ID |
-| `voice` | string | ElevenLabs voice ID |
+| `voiceId` | string | ElevenLabs voice ID used for regular TTS phrases |
+| `introVoiceId` | string | ElevenLabs voice ID used for the intro clip; falls back to `voiceId` if empty or not set |
 | `phrasesPath` | string | Path to a JSON array of phrase strings |
 | `useSavedTts` | bool | `true` = use cached clips; `false` = call the API and cache results |
 | `savedTtsPrefix` | string | Only load cached clips whose filenames start with this prefix |
