@@ -13,7 +13,7 @@ background_videos/  +  phrases.json
   [clip_generator]    [tts_generator]
   60s random clip     MP3 + word chunks
         │                    │
-        └──────────┬──────────┘
+        └──────────┬─────────┘
                    ▼
           [video_composer]
           FFmpeg: scale/crop + drawtext captions + audio mix
@@ -99,7 +99,12 @@ Extracted clips are saved to `background_videos/<subfolder>/clips/` using stream
 | Script | What it does |
 |--------|-------------|
 | `python main.py` | Full pipeline: generate a new video and optionally upload it |
-| `python main.py --upload` | Skip generation, upload existing video(s) from `results/` |
+| `python main.py --upload [N]` | Skip generation, upload N existing video(s) from `results/` (default 1) |
+| `python main.py --loop [N]` | Run the full pipeline N times end-to-end (default 1) |
+| `python main.py --tts [N]` | Generate and cache N TTS clips (default 1), skip composition |
+| `python main.py --clip [N]` | Extract and cache N background clips (default 1), skip TTS and composition |
+| `python main.py --schedule` | Register a daily Windows Task Scheduler entry using `schedule.scheduleTime` (CT) |
+| `python main.py --unschedule` | Remove the ClipVox Windows Task Scheduler entry |
 | `python generate_clip.py` | Extract one or more background clips without running TTS or compositing |
 | `python generate_tts.py` | Pre-generate and cache TTS clips without compositing a video |
 
@@ -187,9 +192,11 @@ Sets up the intro TTS clip used at the start of every video. Reads `intro_phrase
         "backgroundAudioVolume": 0.3,
         "ttsAudioVolume": 1.0
     },
+    "schedule": {
+        "scheduleTime": "14:30"
+    },
     "youtube": {
-        "upload": true,
-        "uploadOnly": false,
+        "shouldUpload": true,
         "uploadCount": 1,
         "title": "Things AI Have Actually Said #Shorts",
         "description": "",
@@ -247,6 +254,14 @@ Sets up the intro TTS clip used at the start of every video. Reads `intro_phrase
 The source audio is trimmed from `audioStartTime` to `audioStartTime + video_duration` to exactly match the final video length. Trimmed files are cached in `background_sounds/trimmed_audio/` and reused on subsequent runs when the source filename and duration match.
 
 Trimmed filename format: `{source}_{duration}_{startTime}_{stopTime}_{timestamp}.mp3`
+
+### `schedule`
+
+| Key | Type | Description |
+|-----|------|-------------|
+| `scheduleTime` | string | Time to run the pipeline daily, in `HH:MM` 24-hour format, expressed in **Central Time** (e.g. `"14:30"`) |
+
+Register with `python main.py --schedule`. The time is converted to local system time when the Windows Task Scheduler entry is created. Remove with `python main.py --unschedule`.
 
 ### `youtube`
 

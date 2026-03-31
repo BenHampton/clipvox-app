@@ -1,13 +1,19 @@
 """Full pipeline: background clip + TTS + compose final video."""
 
 import argparse
+import subprocess
+import sys
+from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from config_loader import load_config
 from clip_generator import generate_clip
-from tts_generator import generate_tts, generate_intro_tts
+from tts_generator import generate_tts, generate_intro_tts, generate_single_tts
 from video_composer import compose_video
 from youtube_uploader import YouTubeUploader
+
+TASK_NAME = "ClipVox"
 
 
 def _get_result_videos(results_dir):
@@ -62,28 +68,221 @@ def _run_upload(config, videos):
         print(f"YouTube Short: {url}")
 
 
+def _run_tts_mode(config, count):
+    print("=== TTS Generator ===\n")
+    for i in range(count):
+        if count > 1:
+            print(f"\n--- Generating TTS clip {i + 1} of {count} ---")
+        result = generate_single_tts(config)
+        if result is None:
+            print("All phrases are already cached — stopping early.")
+            break
+    print("\n=== Done ===")
+
+
+def _run_clip_mode(config, count):
+    print("=== Background Clip Generator ===")
+    config["backgroundVideo"]["useExistingClip"] = False
+    created = 0
+    collisions = 0
+    for i in range(count):
+        if count > 1:
+            print(f"\n--- Generating clip {i + 1} of {count} ---")
+        clip_path, _, had_collision = generate_clip(config)
+        if clip_path:
+            created += 1
+            print(f"\nClip saved: {clip_path}")
+        if had_collision:
+            collisions += 1
+    print(f"\n=== Summary ===")
+    print(f"Clips requested:        {count}")
+    print(f"Clips created:          {created}")
+    print(f"Clips with collisions:  {collisions}")
+
+
+def _run_loop_mode(config, count):
+    yt_config = config.get("youtube", {})
+    should_upload = yt_config.get("shouldUpload", True)
+
+    for i in range(count):
+        print(f"\n{'=' * 50}")
+        print(f"=== Run {i + 1} of {count} ===")
+        print(f"{'=' * 50}\n")
+        output_path = _run_pipeline(config)
+
+        if should_upload:
+            _run_upload(config, [Path(output_path)])
+        else:
+            print("\nUpload skipped (youtube.shouldUpload is false).")
+
+    print(f"\n=== All {count} run(s) complete ===")
+
+
+def _task_exists():
+    result = subprocess.run(
+        ["schtasks", "/query", "/tn", TASK_NAME],
+        capture_output=True, text=True
+    )
+    return result.returncode == 0
+
+
+def _unregister_schedule(log_result=True):
+    if not _task_exists():
+        if log_result:
+            print(f"No scheduled task '{TASK_NAME}' found — nothing to remove.")
+        return False
+    result = subprocess.run(
+        ["schtasks", "/delete", "/tn", TASK_NAME, "/f"],
+        capture_output=True, text=True
+    )
+    if result.returncode != 0:
+        print(f"ERROR: Failed to remove scheduled task '{TASK_NAME}':\n{result.stderr.strip()}")
+        return False
+    if log_result:
+        print(f"Scheduled task '{TASK_NAME}' removed successfully.")
+    return True
+
+
+def _register_schedule(config):
+    schedule_config = config.get("schedule", {})
+    time_str = schedule_config.get("scheduleTime", "")
+    if not time_str:
+        print("ERROR: schedule.scheduleTime not set in config.json (e.g. \"14:30\")")
+        sys.exit(1)
+
+    if _task_exists():
+        print(f"NOTE: An existing scheduled task '{TASK_NAME}' was found — it will be overwritten.")
+
+    try:
+        central = ZoneInfo("America/Chicago")
+        local_tz = datetime.now().astimezone().tzinfo
+        now_ct = datetime.now(central)
+        h, m = map(int, time_str.split(":"))
+        scheduled_ct = now_ct.replace(hour=h, minute=m, second=0, microsecond=0)
+        scheduled_local = scheduled_ct.astimezone(local_tz)
+        local_time_str = scheduled_local.strftime("%H:%M")
+    except Exception as e:
+        print(f"ERROR: Could not parse scheduleTime '{time_str}': {e}")
+        sys.exit(1)
+
+    python_exe = sys.executable
+    script_path = Path(__file__).resolve()
+    task_cmd = f'"{python_exe}" "{script_path}"'
+
+    result = subprocess.run(
+        ["schtasks", "/create", "/tn", TASK_NAME, "/tr", task_cmd,
+         "/sc", "daily", "/st", local_time_str, "/f"],
+        capture_output=True, text=True
+    )
+
+    if result.returncode != 0:
+        print(f"ERROR: Failed to register scheduled task:\n{result.stderr.strip()}")
+        print("Attempting to unschedule any partial registration...")
+        removed = _unregister_schedule(log_result=False)
+        if removed:
+            print(f"Unscheduled '{TASK_NAME}' after registration failure.")
+        else:
+            print(f"No partial task found for '{TASK_NAME}' — nothing to clean up.")
+        sys.exit(1)
+
+    print(f"Scheduled '{TASK_NAME}' to run daily at {time_str} CT ({local_time_str} local time).")
+    print(f"Command: {task_cmd}")
+    print(f"To remove: python main.py --unschedule")
+
+
 def main():
-    parser = argparse.ArgumentParser(description="ClipVox video pipeline")
-    parser.add_argument("--upload", action="store_true",
-                        help="Skip generation and upload existing videos from results/")
+    parser = argparse.ArgumentParser(
+        prog="python main.py",
+        description=(
+            "ClipVox — automated short-form vertical video pipeline.\n"
+            "Combines a background clip, ElevenLabs TTS audio, and synced captions "
+            "into a YouTube Shorts-ready video."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument(
+        "--tts", nargs="?", const=1, type=int, metavar="N",
+        help=(
+            "Generate and cache N TTS phrase clips via ElevenLabs (default: 1). "
+            "Skips video composition and upload."
+        )
+    )
+    mode.add_argument(
+        "--clip", nargs="?", const=1, type=int, metavar="N",
+        help=(
+            "Extract and cache N background video clips (default: 1). "
+            "Skips TTS generation and video composition."
+        )
+    )
+    mode.add_argument(
+        "--loop", nargs="?", const=1, type=int, metavar="N",
+        help=(
+            "Run the full pipeline N times end-to-end (default: 1). "
+            "Each iteration generates a video and uploads if youtube.shouldUpload is true."
+        )
+    )
+    mode.add_argument(
+        "--upload", nargs="?", const=1, type=int, metavar="N",
+        help=(
+            "Skip generation and upload N existing video(s) from results/ to YouTube (default: 1). "
+            "Overrides youtube.shouldUpload regardless of its value."
+        )
+    )
+    mode.add_argument(
+        "--schedule", action="store_true",
+        help=(
+            "Register a daily Windows Task Scheduler entry that runs main.py at the time "
+            "set in config schedule.scheduleTime (stored in Central Time)."
+        )
+    )
+    mode.add_argument(
+        "--unschedule", action="store_true",
+        help=f"Remove the '{TASK_NAME}' Windows Task Scheduler entry created by --schedule."
+    )
+
     args = parser.parse_args()
 
-    print("=== ClipVox Generator ===\n")
+    if args.tts is not None:
+        config = load_config()
+        _run_tts_mode(config, args.tts)
+        return
+
+    if args.clip is not None:
+        config = load_config()
+        _run_clip_mode(config, args.clip)
+        return
+
+    if args.schedule:
+        config = load_config()
+        _register_schedule(config)
+        return
+
+    if args.unschedule:
+        _unregister_schedule()
+        return
 
     config = load_config()
     yt_config = config.get("youtube", {})
     should_upload = yt_config.get("shouldUpload", True)
-    upload_only = args.upload
-    upload_count = yt_config.get("uploadCount", 1)
+
+    if args.loop is not None:
+        print("=== ClipVox Generator ===\n")
+        _run_loop_mode(config, args.loop)
+        return
+
+    print("=== ClipVox Generator ===\n")
 
     results_dir = Path("results")
     results_dir.mkdir(exist_ok=True)
 
+    upload_only = args.upload is not None
+    upload_count = args.upload if upload_only else yt_config.get("uploadCount", 1)
     results_forced_generation = False
 
     if upload_only:
         videos = _get_result_videos(results_dir)
-
         if not videos:
             print("WARNING: results/ is empty. Generating a new video to upload...\n")
             results_forced_generation = True

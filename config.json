@@ -15,8 +15,8 @@
     },
     "tts": {
         "model": "eleven_multilingual_v2",
-        "voiceId": "ybjoxm7ASLDUFh2pC2eM",
-        "introVoiceId": "JBFqnCBsd6RMkjVDRZzb",
+        "voiceId": "JBFqnCBsd6RMkjVDRZzb",
+        "introVoiceId": "nPczCjzI2devNBz1zQrb",
         "phrasesPath": "talk_to_speak/creepy_ai/phrases.json",
         "useSavedTts": true,
         "savedTtsPrefix": "",
@@ -31,8 +31,11 @@
         "encodingPreset": "fast",
         "threads": 4
     },
+    "schedule": {
+        "scheduleTime": "14:30"
+    },
     "youtube": {
-        "shouldUpload": true,
+        "shouldUpload": false,
         "uploadCount": 1,
         "title": "Things AI Have Actually Said #Shorts",
         "description": "",
