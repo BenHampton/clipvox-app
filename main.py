@@ -7,6 +7,7 @@ from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+from clip_registry import clean_registry
 from config_loader import load_config
 from clip_generator import generate_clip
 from tts_generator import generate_tts, generate_intro_tts, generate_single_tts
@@ -30,6 +31,9 @@ def _run_pipeline(config):
 
     print("\n--- Step 3: Composing Video ---")
     output_path, bg_audio_from_cache = compose_video(config, clip_path, tts_clips, video_duration)
+
+    if not clip_from_cache and not config["backgroundVideo"].get("cacheClip", False):
+        Path(clip_path).unlink(missing_ok=True)
 
     ba_config = config.get("backgroundAudio", {})
     include_audio = ba_config.get("includeAudio", False)
@@ -83,6 +87,7 @@ def _run_tts_mode(config, count):
 def _run_clip_mode(config, count):
     print("=== Background Clip Generator ===")
     config["backgroundVideo"]["useExistingClip"] = False
+    config["backgroundVideo"]["cacheClip"] = True
     created = 0
     collisions = 0
     for i in range(count):
@@ -241,6 +246,13 @@ def main():
         "--unschedule", action="store_true",
         help=f"Remove the '{TASK_NAME}' Windows Task Scheduler entry created by --schedule."
     )
+    mode.add_argument(
+        "--clean-up", action="store_true",
+        help=(
+            "Remove entries from results/used_clips.json whose result video no longer exists "
+            "in results/. Prints a full summary of removed and kept entries."
+        )
+    )
 
     args = parser.parse_args()
 
@@ -261,6 +273,27 @@ def main():
 
     if args.unschedule:
         _unregister_schedule()
+        return
+
+    if args.clean_up:
+        try:
+            kept, removed = clean_registry()
+        except FileNotFoundError:
+            print("No registry found — nothing to clean up.")
+            return
+        print(f"Removed ({len(removed)}):")
+        if removed:
+            for e in removed:
+                print(f"  • {e['result_video']}")
+        else:
+            print("  (none)")
+        print(f"Kept ({len(kept)}):")
+        if kept:
+            for e in kept:
+                status = "uploaded" if e.get("uploaded_at") else "pending"
+                print(f"  • {e['result_video']}  [{status}]")
+        else:
+            print("  (none)")
         return
 
     config = load_config()

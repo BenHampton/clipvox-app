@@ -24,13 +24,14 @@ background_videos/  +  phrases.json
                    ▼
           [youtube_uploader]
           OAuth2 → YouTube Shorts
-          moves file → results/uploaded/
+          logs to results/used_clips.json
+          deletes local file after upload
 ```
 
-1. **Background Clip** — extracts a random 60s segment from a source video in `background_videos/`, or reuses an existing saved clip
+1. **Background Clip** — extracts a random 60s segment from a source video in `background_videos/`, or reuses an existing cached clip. Set `cacheClip: true` to save the clip to disk for reuse; `false` (default) extracts a temp clip that is deleted after composition.
 2. **Text-to-Speech** — always plays a fixed intro clip first, then fills the remaining video duration (45–60s) with saved or newly-generated TTS phrases separated by configurable gaps (`phraseGap`, `introPhraseGap`)
-3. **Compose** — builds a single FFmpeg command that scales/crops the background to 9:16, mixes all TTS audio at their calculated offsets, and burns in synced word-by-word captions via the `drawtext` filter, then writes to `results/`
-4. **Upload** — authenticates with YouTube via OAuth 2.0 and uploads to Shorts; after a successful upload the video is moved to `results/uploaded/`
+3. **Compose** — builds an FFmpeg filter complex that scales/crops the background to 9:16, mixes all TTS audio at their calculated offsets, and burns in synced word-by-word captions via the `drawtext` filter, then writes to `results/`
+4. **Upload** — authenticates with YouTube via OAuth 2.0 and uploads to Shorts; records the YouTube video ID, URL, and timestamp in `results/used_clips.json`, then deletes the local file
 
 ---
 
@@ -90,7 +91,7 @@ background_videos/<subfolder>/<subfolder>.mp4
 
 Example: `background_videos/minecraft_parkour/minecraft_parkour.mp4`
 
-Extracted clips are saved to `background_videos/<subfolder>/clips/` using stream copy (no re-encoding).
+When `cacheClip` is `true`, extracted clips are saved to `background_videos/<subfolder>/clips/` using stream copy (no re-encoding). When `false`, a temp clip is written there and deleted after composition.
 
 ---
 
@@ -103,6 +104,7 @@ Extracted clips are saved to `background_videos/<subfolder>/clips/` using stream
 | `python main.py --loop [N]` | Run the full pipeline N times end-to-end (default 1) |
 | `python main.py --tts [N]` | Generate and cache N TTS clips (default 1), skip composition |
 | `python main.py --clip [N]` | Extract and cache N background clips (default 1), skip TTS and composition |
+| `python main.py --clean-up` | Remove orphaned entries from `results/used_clips.json` (result video no longer in `results/`) |
 | `python main.py --schedule` | Register a daily Windows Task Scheduler entry using `schedule.scheduleTime` (CT) |
 | `python main.py --unschedule` | Remove the ClipVox Windows Task Scheduler entry |
 | `python generate_clip.py` | Extract one or more background clips without running TTS or compositing |
@@ -165,7 +167,8 @@ Sets up the intro TTS clip used at the start of every video. Reads `intro_phrase
         "clipName": "saved_clip_",
         "backgroundVideoLength": 60,
         "useExistingClip": true,
-        "existingClipName": ""
+        "existingClipName": "",
+        "cacheClip": false
     },
     "tts": {
         "model": "eleven_multilingual_v2",
@@ -212,10 +215,11 @@ Sets up the intro TTS clip used at the start of every video. Reads `intro_phrase
 | Key | Type | Description |
 |-----|------|-------------|
 | `videoName` | string | Source `.mp4` path relative to `background_videos/`, e.g. `minecraft_parkour/minecraft_parkour.mp4` |
-| `clipName` | string | Filename prefix for newly extracted clips |
+| `clipName` | string | Filename prefix for newly extracted clips (only used when `cacheClip` is `true`) |
 | `backgroundVideoLength` | number | Duration in seconds for extracted clips and TTS max fill (default `60`) |
-| `useExistingClip` | bool | When `true`, reuses the most recent saved clip instead of generating a new one |
-| `existingClipName` | string | Use a specific saved clip by name; falls back to most recent if not found |
+| `useExistingClip` | bool | When `true`, reuses the most recent cached clip instead of generating a new one |
+| `existingClipName` | string | Use a specific cached clip by name; falls back to most recent if not found |
+| `cacheClip` | bool | When `true`, saves newly extracted clips to `clips/` for reuse; `false` (default) uses a temp file deleted after composition. Always `true` when using `--clip` |
 
 ### `tts`
 
@@ -247,13 +251,11 @@ Sets up the intro TTS clip used at the start of every video. Reads `intro_phrase
 |-----|------|-------------|
 | `includeAudio` | bool | `true` = mix a background music track into the final video |
 | `audioPath` | string | Path to the source `.mp3` under `background_sounds/` |
-| `audioStartTime` | number | Start offset in seconds from the source file to begin the trim (default `0`) |
+| `audioStartTime` | number | Start offset in seconds from the source file (default `0`) |
 | `backgroundAudioVolume` | number | Volume of the background music relative to full (e.g. `0.3` = 30%) |
 | `ttsAudioVolume` | number | Volume of the TTS voices when mixed with background audio (default `1.0`) |
 
-The source audio is trimmed from `audioStartTime` to `audioStartTime + video_duration` to exactly match the final video length. Trimmed files are cached in `background_sounds/trimmed_audio/` and reused on subsequent runs when the source filename and duration match.
-
-Trimmed filename format: `{source}_{duration}_{startTime}_{stopTime}_{timestamp}.mp3`
+The source audio is trimmed once from `audioStartTime` to the end of the file and cached in `background_sounds/trimmed_audio/` as `{source}_{audioStartTime}.mp3`. The same cached file is reused for every video regardless of duration — the video composer's `-t` flag handles the actual cutoff. The cache is only invalidated if `audioStartTime` changes.
 
 ### `schedule`
 
@@ -274,6 +276,24 @@ Register with `python main.py --schedule`. The time is converted to local system
 | `tags` | array | List of tag strings |
 | `categoryId` | number | YouTube category ID (e.g. `22` = People & Blogs, `24` = Entertainment) |
 | `privacyStatus` | string | `public`, `unlisted`, or `private` |
+
+---
+
+## Clip deduplication
+
+`results/used_clips.json` is a registry that tracks every background clip used in a composed video. Each entry records:
+
+| Field | Description |
+|-------|-------------|
+| `clip_name` | Background clip filename |
+| `clip_path` | Full path to the clip |
+| `start_time` | Start offset (seconds) within the source video |
+| `result_video` | Composed output filename |
+| `youtube_id` | YouTube video ID (set after upload) |
+| `youtube_url` | YouTube Shorts URL (set after upload) |
+| `uploaded_at` | ISO 8601 UTC timestamp of upload |
+
+Deduplication prevents the same background clip from being reused across any composed video (pending or uploaded), matching by both filename and start time. Run `python main.py --clean-up` to remove entries whose result video no longer exists in `results/`.
 
 ---
 
@@ -328,7 +348,7 @@ talk_to_speak/creepy_ai/
 
 When `--upload` is passed and `results/` is **empty**, the pipeline runs automatically to generate one video, which is then uploaded immediately. A prominent notice is printed at the end.
 
-After each successful upload the video file is moved to `results/uploaded/` to prevent re-uploading.
+After each successful upload the YouTube video ID and URL are written to `results/used_clips.json` and the local file is deleted.
 
 ---
 
@@ -369,11 +389,12 @@ clipvox-app/
 │   ├── your_music.mp3
 │   └── trimmed_audio/              # Auto-generated trims (cached, never committed)
 ├── results/                        # Generated output videos
-│   └── uploaded/                   # Videos moved here after successful upload
+│   └── used_clips.json             # Clip deduplication registry (never committed)
 ├── config.json
 ├── .env                            # API keys (never committed)
 ├── .youtube_token.json             # OAuth token (auto-generated, never committed)
 ├── main.py                         # Entry point: pipeline + upload
+├── clip_registry.py                # Clip deduplication registry read/write
 ├── generate_clip.py                # Standalone clip extractor
 ├── generate_tts.py                 # Standalone TTS pre-generator
 ├── clip_generator.py

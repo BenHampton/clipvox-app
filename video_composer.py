@@ -45,6 +45,7 @@ def _escape_text(text):
     text = text.replace("'", "\\'")
     text = text.replace(":", "\\:")
     text = text.replace(",", "\\,")
+    text = text.replace(";", "\\;")
     return text
 
 
@@ -172,7 +173,6 @@ def compose_video(config, clip_path, tts_clips, video_duration):
         cmd += ["-threads", str(threads)]
     for inp in inputs:
         cmd += ["-i", str(inp)]
-    cmd += ["-filter_complex", filter_complex]
     cmd += ["-map", "[vout]"]
     cmd += audio_map_args
     cmd += ["-c:v", "libx264", "-preset", preset]
@@ -181,7 +181,18 @@ def compose_video(config, clip_path, tts_clips, video_duration):
     print(f"Writing final video: {output_path}")
     print(f"Filter complex:\n{filter_complex}\n")
 
-    result = subprocess.run(cmd)
+    # Write filter_complex to a file to avoid Windows command-line length limits.
+    # Use results/ (not the system temp dir) and forward slashes so FFmpeg can open it.
+    fc_path = results_dir / "fc_tmp.txt"
+    fc_path.write_text(filter_complex, encoding="utf-8")
+    fc_path_str = str(fc_path.resolve()).replace("\\", "/")
+    try:
+        insert_at = cmd.index("-map")
+        cmd_with_fc = cmd[:insert_at] + ["-filter_complex_script", fc_path_str] + cmd[insert_at:]
+        result = subprocess.run(cmd_with_fc)
+    finally:
+        fc_path.unlink(missing_ok=True)
+
     if result.returncode != 0:
         raise RuntimeError(f"FFmpeg failed (exit {result.returncode}) — see output above.")
 

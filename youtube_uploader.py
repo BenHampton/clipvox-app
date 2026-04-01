@@ -2,7 +2,6 @@
 
 import json
 import os
-import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -122,9 +121,7 @@ class YouTubeUploader:
 
         mark_uploaded(video_path.name, video_id, url)
 
-        uploaded_dir = video_path.parent / "uploaded"
-        uploaded_dir.mkdir(exist_ok=True)
-        shutil.move(str(video_path), str(uploaded_dir / video_path.name))
-        print(f"Moved to: {uploaded_dir / video_path.name}")
+        video_path.unlink()
+        print(f"Deleted: {video_path.name}")
 
         return url

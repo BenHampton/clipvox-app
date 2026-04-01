@@ -126,37 +126,42 @@ def generate_clip(config):
         )
 
     max_start = duration - clip_length
-    clip_name = bg_config.get("clipName", "") or "saved_clip_"
+    start_time = random.uniform(0, max_start)
+    cache_clip = bg_config.get("cacheClip", False)
+
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-
-    max_attempts = 3
     had_collision = False
-    for attempt in range(1, max_attempts + 1):
-        start_time = random.uniform(0, max_start)
-        output_path = clips_dir / f"{clip_name}{timestamp}_start_time_{int(start_time)}.mp4"
 
-        if output_path.exists():
-            had_collision = True
-            if attempt < max_attempts:
-                print(f"Clip name collision, retrying ({attempt}/{max_attempts - 1})...")
-                continue
-            print(f"Warning: could not find a unique clip name after {max_attempts} attempts. Overwriting {output_path}.")
-
-        print(f"Extracting clip: {start_time:.1f}s → {start_time + clip_length:.1f}s  from {video_path.name}")
+    if cache_clip:
+        clip_name = bg_config.get("clipName", "") or "saved_clip_"
+        max_attempts = 3
+        for attempt in range(1, max_attempts + 1):
+            output_path = clips_dir / f"{clip_name}{timestamp}_start_time_{int(start_time)}.mp4"
+            if output_path.exists():
+                had_collision = True
+                if attempt < max_attempts:
+                    print(f"Clip name collision, retrying ({attempt}/{max_attempts - 1})...")
+                    start_time = random.uniform(0, max_start)
+                    continue
+                print(f"Warning: could not find a unique clip name after {max_attempts} attempts. Overwriting {output_path}.")
+            break
         print(f"Saving clip to: {output_path}")
-        subprocess.run(
-            [
-                ffmpeg_exe,
-                "-ss", str(start_time),
-                "-i", str(video_path),
-                "-t", str(clip_length),
-                "-c:v", "copy",
-                "-an",
-                str(output_path),
-            ],
-            check=True,
-        )
-        print(f"Clip saved: {output_path.name}")
-        return str(output_path), False, had_collision
+    else:
+        output_path = clips_dir / f"tmp_{timestamp}_start_time_{int(start_time)}.mp4"
 
-    return None, False, had_collision
+    print(f"Extracting clip: {start_time:.1f}s -> {start_time + clip_length:.1f}s  from {video_path.name}")
+    subprocess.run(
+        [
+            ffmpeg_exe,
+            "-ss", str(start_time),
+            "-i", str(video_path),
+            "-t", str(clip_length),
+            "-c:v", "copy",
+            "-an",
+            str(output_path),
+        ],
+        check=True,
+    )
+    if cache_clip:
+        print(f"Clip saved: {output_path.name}")
+    return str(output_path), False, had_collision

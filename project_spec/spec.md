@@ -135,3 +135,32 @@ A: Remove the log entirely.
 - Removed the "Uploaded clip history" log block (6 lines) that printed each tracked clip to console
 - Removed the `# Log uploaded clip history` comment
 - Updated the fallback message from `"All cached clips have already been used in uploaded videos"` to `"All cached clips have already been used"` to reflect that pending results also count
+
+
+
+------------------------------------------------------------------------------------------------------------
+
+
+
+## Q&A — --clean-up flag (2026-03-31)
+
+**Q1: Uploaded videos are in `results/uploaded/`, not `results/` — should `--clean-up` also check `results/uploaded/` to avoid removing their entries?**
+A: Check both folders — keep entries for any video in `results/` or `results/uploaded/`; only remove truly orphaned entries.
+
+**Q2: Should `--clean-up` print a summary of what it removed and kept?**
+A: Always print a full summary, even if nothing was removed.
+
+**Q3: If `results/used_clips.json` doesn't exist when `--clean-up` is run, should it exit with a message or create an empty registry?**
+A: Exit with a message — `"No registry found — nothing to clean up."`
+
+---
+
+## Summary of Changes — --clean-up flag (2026-03-31)
+
+### `clip_registry.py`
+- Added `clean_registry()` — scans `results/*.mp4` and `results/uploaded/*.mp4` to build a set of known video filenames; splits registry entries into `kept` (result_video exists on disk) and `removed` (result_video not found in either folder); saves the filtered list and returns `(kept, removed)` for the caller to print; raises `FileNotFoundError` if the registry does not exist
+
+### `main.py`
+- Added `from clip_registry import clean_registry` import
+- Added `--clean-up` to the mutually exclusive mode argument group
+- Added handler for `args.clean_up`: calls `clean_registry()`, catches `FileNotFoundError` to print the "no registry" message, then prints removed entries and kept entries (with `[pending]` / `[uploaded]` status labels) before returning
