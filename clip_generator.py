@@ -1,11 +1,13 @@
-import re
 import random
+import re
 import shutil
 import subprocess
 from datetime import datetime
 from pathlib import Path
 
 import imageio_ffmpeg
+
+from clip_registry import get_used_clips, _parse_start_time
 
 
 def _find_ffmpeg():
@@ -32,22 +34,58 @@ def _get_video_duration(ffmpeg_exe, video_path):
     return int(h) * 3600 + int(m) * 60 + float(s)
 
 
-def _get_existing_clip(config):
+def _get_used_clips():
+    """Return uploaded clip entries from the central registry."""
+    return get_used_clips()
+
+
+def _is_clip_used(clip_path, used_clips):
+    """
+    Returns True if the clip matches any used clip by exact filename OR by start time.
+    """
+    name = Path(clip_path).name
+    start = _parse_start_time(name)
+    for used in used_clips:
+        if used["clip_name"] == name:
+            return True
+        if start is not None and used["start_time"] is not None and start == used["start_time"]:
+            return True
+    return False
+
+
+def _get_existing_unused_clip(config, used_clips):
+    """
+    Returns the path to the most recent cached clip that has not been used in
+    an uploaded video, or None if no unused clip exists.
+    """
     video_name = config["backgroundVideo"].get("videoName", "")
     clips_dir = Path("background_videos") / Path(video_name).parent / "clips"
     if not clips_dir.exists():
+        print(f"  Clips directory does not exist: {clips_dir}")
         return None
 
     specified = config["backgroundVideo"].get("existingClipName", "")
     if specified:
         path = clips_dir / specified
         if path.exists():
-            return str(path)
-        print(f"Specified clip not found: {path}, falling back to most recent.")
+            if _is_clip_used(path, used_clips):
+                print(f"  Specified clip '{specified}' has already been used in an upload — falling back to most recent unused.")
+            else:
+                print(f"  Specified clip found and unused: {path.name}")
+                return str(path)
+        else:
+            print(f"  Specified clip not found: {path} — falling back to most recent.")
 
     clips = sorted(clips_dir.glob("*.mp4"), key=lambda p: p.stat().st_mtime, reverse=True)
-    if clips:
-        return str(clips[0])
+    print(f"  Found {len(clips)} cached clip(s) in {clips_dir}")
+
+    for clip in clips:
+        if _is_clip_used(clip, used_clips):
+            reason = f"start time {_parse_start_time(clip.name)}s" if _parse_start_time(clip.name) is not None else "filename match"
+            print(f"  Skipping (already used — {reason}): {clip.name}")
+        else:
+            print(f"  Selected unused clip: {clip.name}")
+            return str(clip)
 
     return None
 
@@ -58,12 +96,17 @@ def generate_clip(config):
     clips_dir = Path("background_videos") / Path(video_name).parent / "clips"
     clips_dir.mkdir(parents=True, exist_ok=True)
 
+    used_clips = _get_used_clips()
+
     if bg_config.get("useExistingClip", True):
-        existing = _get_existing_clip(config)
+        existing = _get_existing_unused_clip(config, used_clips)
         if existing:
             print(f"Using existing clip: {existing}")
             return existing, True, False
-        print("No existing clips found, generating new clip...")
+        if used_clips:
+            print("All cached clips have already been used — generating a new clip.")
+        else:
+            print("No cached clips found — generating new clip.")
 
     if not video_name:
         raise ValueError("backgroundVideo.videoName must be set in config.json")
@@ -76,6 +119,7 @@ def generate_clip(config):
 
     clip_length = int(bg_config.get("backgroundVideoLength", 60))
     duration = _get_video_duration(ffmpeg_exe, video_path)
+    print(f"Source video: {video_path}  |  Duration: {duration:.1f}s  |  Clip length: {clip_length}s")
     if duration < clip_length:
         raise ValueError(
             f"Background video is too short ({duration:.1f}s). Must be at least {clip_length} seconds."
@@ -98,7 +142,7 @@ def generate_clip(config):
                 continue
             print(f"Warning: could not find a unique clip name after {max_attempts} attempts. Overwriting {output_path}.")
 
-        print(f"Extracting clip: {start_time:.1f}s to {start_time + clip_length:.1f}s")
+        print(f"Extracting clip: {start_time:.1f}s → {start_time + clip_length:.1f}s  from {video_path.name}")
         print(f"Saving clip to: {output_path}")
         subprocess.run(
             [
@@ -112,6 +156,7 @@ def generate_clip(config):
             ],
             check=True,
         )
+        print(f"Clip saved: {output_path.name}")
         return str(output_path), False, had_collision
 
     return None, False, had_collision

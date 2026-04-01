@@ -1,7 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "Bash(ls:*)"
+      "Bash(ls:*)",
+      "Bash(python -c \"from clip_registry import _auto_migrate; _auto_migrate\\(\\)\")"
     ]
   }
 }

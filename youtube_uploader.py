@@ -6,6 +6,8 @@ import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 
+from clip_registry import mark_uploaded
+
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -117,6 +119,8 @@ class YouTubeUploader:
         video_id = response["id"]
         url = f"https://www.youtube.com/shorts/{video_id}"
         print(f"Upload complete: {url}")
+
+        mark_uploaded(video_path.name, video_id, url)
 
         uploaded_dir = video_path.parent / "uploaded"
         uploaded_dir.mkdir(exist_ok=True)

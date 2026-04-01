@@ -116,6 +116,7 @@ Thumbs.db
 *.mp3
 *.mp4
 tts_elevenlabs_*/
+results/used_clips.json
 
 # Environment variables
 .env

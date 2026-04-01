@@ -1,4 +1,5 @@
 import os
+import re
 import shutil
 import subprocess
 from datetime import datetime
@@ -7,6 +8,7 @@ from pathlib import Path
 import imageio_ffmpeg
 
 from background_audio import BackgroundAudio
+from clip_registry import add_pending_entry
 
 TARGET_WIDTH = 1080
 TARGET_HEIGHT = 1920
@@ -164,17 +166,17 @@ def compose_video(config, clip_path, tts_clips, video_duration):
     filter_complex = ";".join(filter_parts)
 
     # build and run FFmpeg command
-    cmd = [ffmpeg_exe, "-y"]
+    # Global options (-y, -loglevel, -threads) must come before any -i inputs
+    cmd = [ffmpeg_exe, "-y", "-loglevel", "error"]
+    if threads > 0:
+        cmd += ["-threads", str(threads)]
     for inp in inputs:
         cmd += ["-i", str(inp)]
     cmd += ["-filter_complex", filter_complex]
     cmd += ["-map", "[vout]"]
     cmd += audio_map_args
     cmd += ["-c:v", "libx264", "-preset", preset]
-    if threads > 0:
-        cmd += ["-threads", str(threads)]
-    cmd += ["-loglevel", "error", "-stats"]
-    cmd += ["-t", f"{video_duration:.3f}", str(output_path)]
+    cmd += ["-stats", "-t", f"{video_duration:.3f}", str(output_path)]
 
     print(f"Writing final video: {output_path}")
     print(f"Filter complex:\n{filter_complex}\n")
@@ -183,5 +185,6 @@ def compose_video(config, clip_path, tts_clips, video_duration):
     if result.returncode != 0:
         raise RuntimeError(f"FFmpeg failed (exit {result.returncode}) — see output above.")
 
+    add_pending_entry(clip_path, output_path.name)
     print(f"Done! Output: {output_path}")
     return str(output_path), bg_audio_from_cache
