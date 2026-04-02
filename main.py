@@ -1,6 +1,7 @@
 """Full pipeline: background clip + TTS + compose final video."""
 
 import argparse
+import json
 import subprocess
 import sys
 from datetime import datetime
@@ -71,6 +72,51 @@ def _run_upload(config, videos):
     for video in videos:
         url = uploader.upload(video, save_result=save_result)
         print(f"YouTube Short: {url}")
+
+
+def _run_clean_up_tts(config):
+    phrases_path = Path(config["tts"].get("phrasesPath", ""))
+    if not phrases_path.exists():
+        print(f"Phrases file not found: {phrases_path}")
+        return
+
+    phrases = json.loads(phrases_path.read_text(encoding="utf-8"))
+
+    # Build set of cached phrase texts from saved_elevenlabs_tts/
+    saved_dir = phrases_path.parent / "saved_elevenlabs_tts"
+    cached_texts = set()
+    if saved_dir.exists():
+        for subdir in saved_dir.iterdir():
+            if not subdir.is_dir():
+                continue
+            for json_file in subdir.glob("*.json"):
+                try:
+                    data = json.loads(json_file.read_text(encoding="utf-8"))
+                    text = data.get("text", "")
+                    if text:
+                        cached_texts.add(text)
+                except Exception:
+                    continue
+
+    converted_path = phrases_path.parent / "converted_phrases.json"
+    converted = json.loads(converted_path.read_text(encoding="utf-8")) if converted_path.exists() else []
+    converted_set = set(converted)
+
+    remaining = []
+    moved_count = 0
+    for phrase in phrases:
+        if phrase in cached_texts:
+            if phrase not in converted_set:
+                converted.append(phrase)
+                converted_set.add(phrase)
+                moved_count += 1
+        else:
+            remaining.append(phrase)
+
+    phrases_path.write_text(json.dumps(remaining, indent=2, ensure_ascii=False), encoding="utf-8")
+    converted_path.write_text(json.dumps(converted, indent=2, ensure_ascii=False), encoding="utf-8")
+    print(f"Moved {moved_count} phrase(s) to {converted_path.name}.")
+    print(f"Remaining in {phrases_path.name}: {len(remaining)}")
 
 
 def _run_tts_mode(config, count):
@@ -250,8 +296,15 @@ def main():
     mode.add_argument(
         "--clean-up", action="store_true",
         help=(
-            "Remove entries from results/used_clips.json whose result video no longer exists "
-            "in results/. Prints a full summary of removed and kept entries."
+            "Delete clip files and result videos referenced in results/used_clips.json. "
+            "Registry entries are kept intact."
+        )
+    )
+    mode.add_argument(
+        "--clean-up-tts", action="store_true",
+        help=(
+            "Move phrases from phrasesPath that already have a cached TTS clip into "
+            "converted_phrases.json, removing them from the active phrase pool."
         )
     )
 
@@ -294,6 +347,11 @@ def main():
                 print(f"  • {p}")
         else:
             print("  (none)")
+        return
+
+    if args.clean_up_tts:
+        config = load_config()
+        _run_clean_up_tts(config)
         return
 
     config = load_config()

@@ -164,3 +164,34 @@ A: Exit with a message — `"No registry found — nothing to clean up."`
 - Added `from clip_registry import clean_registry` import
 - Added `--clean-up` to the mutually exclusive mode argument group
 - Added handler for `args.clean_up`: calls `clean_registry()`, catches `FileNotFoundError` to print the "no registry" message, then prints removed entries and kept entries (with `[pending]` / `[uploaded]` status labels) before returning
+
+
+
+------------------------------------------------------------------------------------------------------------
+
+
+
+## Q&A — --clean-up-tts flag (2026-04-01)
+
+**Q1: If a phrase already exists in `converted_phrases.json`, should it be added again or skipped?**
+A: Skip duplicates — `converted_phrases.json` is a deduplicated set. A phrase already there is not added again, but is still removed from `phrasesPath` if it has been cached.
+
+**Q2: Should `--clean-up-tts` print a full summary of moved phrases or just a count?**
+A: Count only — print moved count and remaining count.
+
+---
+
+## Summary of Changes — --clean-up-tts flag (2026-04-01)
+
+### `main.py`
+- Added `import json`
+- Added `_run_clean_up_tts(config)` function:
+  - Reads `phrasesPath` JSON array
+  - Scans `saved_elevenlabs_tts/tts_elevenlabs_*/*.json` files in the phrases parent dir; builds a set of cached phrase texts using each file's `"text"` field
+  - Loads `converted_phrases.json` from the phrases parent dir if it exists (empty list otherwise)
+  - For each phrase in `phrasesPath`: if cached and not already in `converted_phrases.json`, appends it; if cached regardless of duplicate, removes it from `phrasesPath`; if not cached, keeps it in `phrasesPath`
+  - Writes updated `phrasesPath` and `converted_phrases.json` back to disk
+  - Prints moved count and remaining count
+- Added `--clean-up-tts` to the mutually exclusive mode argument group
+- Added handler for `args.clean_up_tts`: loads config, calls `_run_clean_up_tts(config)`, returns
+- Updated `--clean-up` help text to reflect current behavior (disk cleanup, registry kept intact)

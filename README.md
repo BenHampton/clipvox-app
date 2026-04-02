@@ -104,7 +104,8 @@ When `cacheClip` is `true`, extracted clips are saved to `background_videos/<sub
 | `python main.py --loop [N]` | Run the full pipeline N times end-to-end (default 1) |
 | `python main.py --tts [N]` | Generate and cache N TTS clips (default 1), skip composition |
 | `python main.py --clip [N]` | Extract and cache N background clips (default 1), skip TTS and composition |
-| `python main.py --clean-up` | Remove orphaned entries from `results/used_clips.json` (result video no longer in `results/`) |
+| `python main.py --clean-up` | Delete clip files and result videos referenced in `results/used_clips.json`; registry entries are kept intact |
+| `python main.py --clean-up-tts` | Move phrases from `phrasesPath` that already have a cached TTS clip into `converted_phrases.json`, removing them from the active phrase pool |
 | `python main.py --schedule` | Register a daily Windows Task Scheduler entry using `schedule.scheduleTime` (CT) |
 | `python main.py --unschedule` | Remove the ClipVox Windows Task Scheduler entry |
 | `python generate_clip.py` | Extract one or more background clips without running TTS or compositing |
@@ -186,7 +187,8 @@ Sets up the intro TTS clip used at the start of every video. Reads `intro_phrase
     "output": {
         "name": "result_",
         "encodingPreset": "fast",
-        "threads": 4
+        "threads": 4,
+        "saveResultOnUpload": false
     },
     "backgroundAudio": {
         "includeAudio": false,
@@ -244,6 +246,7 @@ Sets up the intro TTS clip used at the start of every video. Reads `intro_phrase
 | `name` | string | Output filename prefix |
 | `encodingPreset` | string | FFmpeg preset: `ultrafast`, `superfast`, `veryfast`, `faster`, `fast`, `medium`, `slow`, `slower`, `veryslow` |
 | `threads` | number | Encoding threads (0 = FFmpeg default) |
+| `saveResultOnUpload` | bool | When `true`, copies the result video to `results/saved/` before deleting it after a successful upload (default `false`) |
 
 ### `backgroundAudio`
 
@@ -293,7 +296,9 @@ Register with `python main.py --schedule`. The time is converted to local system
 | `youtube_url` | YouTube Shorts URL (set after upload) |
 | `uploaded_at` | ISO 8601 UTC timestamp of upload |
 
-Deduplication prevents the same background clip from being reused across any composed video (pending or uploaded), matching by both filename and start time. Run `python main.py --clean-up` to remove entries whose result video no longer exists in `results/`.
+Deduplication prevents the same background clip from being reused across any composed video (pending or uploaded), matching by both filename and start time.
+
+Run `python main.py --clean-up` to free disk space: it deletes every clip file listed in `clip_path` and every result video listed in `result_video` (checked in both `results/` and `results/saved/`). Registry entries are never removed — `used_clips.json` is preserved for deduplication history.
 
 ---
 
@@ -361,6 +366,7 @@ After each successful upload the YouTube video ID and URL are written to `result
    ```
 3. Set `tts.phrasesPath` in `config.json` to point to it
 4. Cached TTS clips will be stored automatically at `talk_to_speak/<my_set>/saved_elevenlabs_tts/`
+5. Run `python main.py --clean-up-tts` periodically to move phrases whose TTS is already cached out of `phrases.json` and into `converted_phrases.json` in the same directory — keeping the active phrase pool from growing stale
 
 ---
 
@@ -375,7 +381,8 @@ clipvox-app/
 │           └── saved_clip_YYYYMMDD_HHMMSS_start_time_N.mp4
 ├── talk_to_speak/
 │   └── creepy_ai/
-│       ├── phrases.json            # JSON array of phrases
+│       ├── phrases.json            # JSON array of active phrases
+│       ├── converted_phrases.json  # Phrases already cached as TTS (moved here by --clean-up-tts)
 │       ├── intro_tts/              # Required: one tts_elevenlabs_* clip + intro_phrase.json
 │       │   ├── intro_phrase.json   # {"phrase": "..."} — defines the intro text
 │       │   └── tts_elevenlabs_YYYYMMDD_HHMMSS/
@@ -389,6 +396,7 @@ clipvox-app/
 │   ├── your_music.mp3
 │   └── trimmed_audio/              # Auto-generated trims (cached, never committed)
 ├── results/                        # Generated output videos
+│   ├── saved/                      # Copies kept when saveResultOnUpload is true
 │   └── used_clips.json             # Clip deduplication registry (never committed)
 ├── config.json
 ├── .env                            # API keys (never committed)
