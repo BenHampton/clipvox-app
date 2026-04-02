@@ -1,36 +1,9 @@
 {
-  "backgroundVideo": {
-    "videoName": "minecraft_parkour/minecraft_parkour.mp4",
-    "clipName": "saved_clip_",
-    "backgroundVideoLength": 60,
-    "useExistingClip": false,
-    "existingClipName": "",
-    "cacheClip": false
-  },
-  "backgroundAudio": {
-    "includeAudio": true,
-    "audioPath": "background_sounds/viking_build_up.mp3",
-    "audioStartTime": 15,
-    "backgroundAudioVolume": 0.1,
-    "ttsAudioVolume": 1.0
-  },
-  "tts": {
-    "model": "eleven_multilingual_v2",
-    "voiceId": "JBFqnCBsd6RMkjVDRZzb",
-    "introVoiceId": "nPczCjzI2devNBz1zQrb",
-    "phrasesPath": "talk_to_speak/creepy_ai/phrases.json",
-    "useSavedTts": true,
-    "savedTtsPrefix": "",
-    "phraseGap": 0.5,
-    "introPhraseGap": 0.8,
-    "font": "Arial",
-    "fontColor": "white",
-    "fontSize": 70
-  },
   "output": {
     "name": "result_",
     "encodingPreset": "fast",
-    "threads": 4
+    "threads": 4,
+    "saveResultOnUpload": false
   },
   "schedule": {
     "scheduleTime": "14:30"
@@ -45,5 +18,33 @@
     ],
     "categoryId": 24,
     "privacyStatus": "public"
+  },
+  "tts": {
+    "model": "eleven_multilingual_v2",
+    "voiceId": "JBFqnCBsd6RMkjVDRZzb",
+    "introVoiceId": "nPczCjzI2devNBz1zQrb",
+    "phrasesPath": "talk_to_speak/creepy_ai/phrases.json",
+    "useSavedTts": true,
+    "savedTtsPrefix": "",
+    "phraseGap": 0.5,
+    "introPhraseGap": 0.8,
+    "font": "Arial",
+    "fontColor": "white",
+    "fontSize": 70
+  },
+  "backgroundVideo": {
+    "videoName": "minecraft_parkour/minecraft_parkour.mp4",
+    "clipName": "saved_clip_",
+    "backgroundVideoLength": 60,
+    "useExistingClip": false,
+    "existingClipName": "",
+    "cacheClip": false
+  },
+  "backgroundAudio": {
+    "includeAudio": true,
+    "audioPath": "background_sounds/viking_build_up.mp3",
+    "audioStartTime": 15,
+    "backgroundAudioVolume": 0.1,
+    "ttsAudioVolume": 1.0
   }
 }

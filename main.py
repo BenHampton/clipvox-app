@@ -66,9 +66,10 @@ def _run_pipeline(config):
 
 def _run_upload(config, videos):
     uploader = YouTubeUploader(config)
+    save_result = config.get("output", {}).get("saveResultOnUpload", False)
     print(f"\n--- Uploading {len(videos)} video(s) to YouTube ---")
     for video in videos:
-        url = uploader.upload(video)
+        url = uploader.upload(video, save_result=save_result)
         print(f"YouTube Short: {url}")
 
 
@@ -277,21 +278,20 @@ def main():
 
     if args.clean_up:
         try:
-            kept, removed = clean_registry()
+            deleted_clips, deleted_results = clean_registry()
         except FileNotFoundError:
             print("No registry found — nothing to clean up.")
             return
-        print(f"Removed ({len(removed)}):")
-        if removed:
-            for e in removed:
-                print(f"  • {e['result_video']}")
+        print(f"Clips deleted ({len(deleted_clips)}):")
+        if deleted_clips:
+            for p in deleted_clips:
+                print(f"  • {p}")
         else:
             print("  (none)")
-        print(f"Kept ({len(kept)}):")
-        if kept:
-            for e in kept:
-                status = "uploaded" if e.get("uploaded_at") else "pending"
-                print(f"  • {e['result_video']}  [{status}]")
+        print(f"Result videos deleted ({len(deleted_results)}):")
+        if deleted_results:
+            for p in deleted_results:
+                print(f"  • {p}")
         else:
             print("  (none)")
         return

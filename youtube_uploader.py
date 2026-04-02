@@ -2,6 +2,7 @@
 
 import json
 import os
+import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -81,7 +82,7 @@ class YouTubeUploader:
 
         return build("youtube", "v3", credentials=creds)
 
-    def upload(self, video_path):
+    def upload(self, video_path, save_result=False):
         """Upload a video to YouTube and return the video URL."""
         video_path = Path(video_path)
         cfg = self._config
@@ -120,6 +121,12 @@ class YouTubeUploader:
         print(f"Upload complete: {url}")
 
         mark_uploaded(video_path.name, video_id, url)
+
+        if save_result:
+            saved_dir = video_path.parent / "saved"
+            saved_dir.mkdir(exist_ok=True)
+            shutil.copy2(str(video_path), str(saved_dir / video_path.name))
+            print(f"Saved to: {saved_dir / video_path.name}")
 
         video_path.unlink()
         print(f"Deleted: {video_path.name}")

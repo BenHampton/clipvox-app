@@ -59,25 +59,36 @@ def add_pending_entry(clip_path, result_video):
 
 def clean_registry():
     """
-    Remove entries whose result_video no longer exists in results/ or results/uploaded/.
-    Returns (kept, removed) lists of entries.
+    Delete clip files and result videos referenced by registry entries.
+    Checks results/ and results/saved/ for result videos.
+    Registry entries are NOT modified — all entries are kept.
+    Returns (deleted_clips, deleted_results) lists of deleted file path strings.
     Raises FileNotFoundError if the registry does not exist.
     """
     if not REGISTRY_PATH.exists():
         raise FileNotFoundError(REGISTRY_PATH)
 
-    existing_videos = {p.name for p in Path("results").glob("*.mp4")}
-
     entries = load_registry()
-    kept, removed = [], []
-    for entry in entries:
-        if entry.get("result_video") in existing_videos:
-            kept.append(entry)
-        else:
-            removed.append(entry)
+    deleted_clips = []
+    deleted_results = []
 
-    _save_registry(kept)
-    return kept, removed
+    for entry in entries:
+        clip_path = entry.get("clip_path")
+        if clip_path:
+            p = Path(clip_path)
+            if p.exists():
+                p.unlink()
+                deleted_clips.append(str(p))
+
+        result_video = entry.get("result_video")
+        if result_video:
+            for folder in [Path("results"), Path("results/saved")]:
+                p = folder / result_video
+                if p.exists():
+                    p.unlink()
+                    deleted_results.append(str(p))
+
+    return deleted_clips, deleted_results
 
 
 def mark_uploaded(result_video, youtube_id, youtube_url):
