@@ -370,17 +370,13 @@ def main():
 
     upload_only = args.upload is not None
     upload_count = args.upload if upload_only else yt_config.get("uploadCount", 1)
-    results_forced_generation = False
 
     if upload_only:
         videos = _get_result_videos(results_dir)
         if not videos:
-            print("WARNING: results/ is empty. Generating a new video to upload...\n")
-            results_forced_generation = True
-            output_path = _run_pipeline(config)
-            videos = [Path(output_path)]
-        else:
-            videos = videos[:upload_count]
+            print("No videos found in results/ — nothing to upload.")
+            return
+        videos = videos[:upload_count]
     else:
         output_path = _run_pipeline(config)
         videos = [Path(output_path)]
@@ -391,14 +387,6 @@ def main():
         print("\nUpload skipped (youtube.shouldUpload is false).")
 
     print("\n=== Complete! ===")
-
-    if results_forced_generation:
-        print(
-            "\n" + "!" * 60 +
-            "\n  NOTICE: results/ was empty — a new video was generated" +
-            "\n  and uploaded. results/ is now empty again." +
-            "\n" + "!" * 60
-        )
 
 
 if __name__ == "__main__":
