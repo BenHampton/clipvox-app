@@ -102,10 +102,10 @@ When `cacheClip` is `true`, extracted clips are saved to `background_videos/<sub
 | `python main.py` | Full pipeline: generate a new video and optionally upload it |
 | `python main.py --upload [N]` | Skip generation, upload N existing video(s) from `results/` (default 1) |
 | `python main.py --loop [N]` | Run the full pipeline N times end-to-end (default 1) |
-| `python main.py --tts [N]` | Generate and cache N TTS clips (default 1), skip composition |
+| `python main.py --tts [N]` | Generate and cache N TTS clips (default 1), skip composition. Each generated phrase is automatically moved from `phrases.json` to `converted_phrases.json` |
 | `python main.py --clip [N]` | Extract and cache N background clips (default 1), skip TTS and composition |
 | `python main.py --clean-up` | Delete clip files and result videos referenced in `results/used_clips.json`; registry entries are kept intact |
-| `python main.py --clean-up-tts` | Move phrases from `phrasesPath` that already have a cached TTS clip into `converted_phrases.json`, removing them from the active phrase pool |
+| `python main.py --clean-up-tts` | Move phrases from `phrasesPath` that already have a cached TTS clip into `converted_phrases.json`, remove duplicates from `phrasesPath`, and log a full report |
 | `python main.py --schedule` | Register a daily Windows Task Scheduler entry using `schedule.scheduleTime` (CT) |
 | `python main.py --unschedule` | Remove the ClipVox Windows Task Scheduler entry |
 | `python generate_clip.py` | Extract one or more background clips without running TTS or compositing |
@@ -127,6 +127,8 @@ Clips with collisions:  1
 ### `generate_tts.py`
 
 Generates and caches individual TTS clips from the configured phrases file. Stops early if all phrases are already cached. Useful for pre-filling the cache before a batch run.
+
+After each clip is generated, the phrase is automatically moved from `phrases.json` into `converted_phrases.json` in the same directory, keeping the active phrase pool clean. Phrases already present in `converted_phrases.json` are excluded from API calls entirely.
 
 ```
 === TTS Generator ===
@@ -179,6 +181,7 @@ Sets up the intro TTS clip used at the start of every video. Reads `intro_phrase
         "useSavedTts": true,
         "savedTtsPrefix": "",
         "phraseGap": 0.5,
+        "pauseDuration": 0.5,
         "introPhraseGap": 0.5,
         "font": "Arial",
         "fontColor": "white",
@@ -234,6 +237,7 @@ Sets up the intro TTS clip used at the start of every video. Reads `intro_phrase
 | `useSavedTts` | bool | `true` = use cached clips; `false` = call the API and cache results |
 | `savedTtsPrefix` | string | Only load cached clips whose filenames start with this prefix |
 | `phraseGap` | number | Seconds of silence between regular TTS phrases (default `0.5`) |
+| `pauseDuration` | number | Duration in seconds of pauses inserted where `[pause]` appears in a phrase (default `0.5`). The `[pause]` marker is stripped from captions |
 | `introPhraseGap` | number | Seconds of silence between the intro phrase and the first regular phrase; falls back to `phraseGap` if empty or not set |
 | `font` | string | Caption font name (must be available to FFmpeg) |
 | `fontColor` | string | Caption color — any FFmpeg color string, e.g. `white`, `yellow` |
@@ -338,6 +342,11 @@ talk_to_speak/creepy_ai/
 - **`useSavedTts: false`** — calls the ElevenLabs API to generate new clips, caches them, then fills the video the same way.
 - Each TTS clip is stored in its own timestamped subdirectory: `saved_elevenlabs_tts/tts_elevenlabs_YYYYMMDD_HHMMSS/`
 - ElevenLabs returns word-level timestamps (chunks); these are stored in a JSON sidecar alongside each `.mp3` and used by the composer to place caption `drawtext` filters at exact times.
+- After every ElevenLabs API call, remaining monthly characters and the next reset date are logged. For `--tts` this appears after the moved-phrase confirmation; for other flows it appears after the clip is saved:
+  ```
+  ElevenLabs credits: 8,432 remaining of 10,000  |  resets 2026-05-01 00:00 UTC
+  ```
+  If the reset date is unavailable for the plan, only the remaining/limit is shown. Logged silently if the request fails.
 
 ---
 
@@ -366,7 +375,8 @@ After each successful upload the YouTube video ID and URL are written to `result
    ```
 3. Set `tts.phrasesPath` in `config.json` to point to it
 4. Cached TTS clips will be stored automatically at `talk_to_speak/<my_set>/saved_elevenlabs_tts/`
-5. Run `python main.py --clean-up-tts` periodically to move phrases whose TTS is already cached out of `phrases.json` and into `converted_phrases.json` in the same directory — keeping the active phrase pool from growing stale
+5. When using `--tts`, each newly generated phrase is moved from `phrases.json` to `converted_phrases.json` automatically after generation
+6. Run `python main.py --clean-up-tts` to retroactively move any phrases that were cached before the auto-move behavior — or after manually placing clips into `saved_elevenlabs_tts/`. Also removes any duplicate phrases from `phrases.json` and logs them by name
 
 ---
 

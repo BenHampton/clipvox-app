@@ -103,6 +103,8 @@ def _run_clean_up_tts(config):
     converted_set = set(converted)
 
     remaining = []
+    seen = set()
+    removed_dups = []
     moved_count = 0
     for phrase in phrases:
         if phrase in cached_texts:
@@ -110,13 +112,19 @@ def _run_clean_up_tts(config):
                 converted.append(phrase)
                 converted_set.add(phrase)
                 moved_count += 1
+        elif phrase in seen:
+            removed_dups.append(phrase)
         else:
+            seen.add(phrase)
             remaining.append(phrase)
 
     phrases_path.write_text(json.dumps(remaining, indent=2, ensure_ascii=False), encoding="utf-8")
     converted_path.write_text(json.dumps(converted, indent=2, ensure_ascii=False), encoding="utf-8")
     print(f"Moved {moved_count} phrase(s) to {converted_path.name}.")
     print(f"Remaining in {phrases_path.name}: {len(remaining)}")
+    print(f"Removed {len(removed_dups)} duplicate(s) from {phrases_path.name}.")
+    for phrase in removed_dups:
+        print(f"  - \"{phrase}\"")
 
 
 def _run_tts_mode(config, count):

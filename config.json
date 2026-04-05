@@ -27,6 +27,7 @@
     "useSavedTts": true,
     "savedTtsPrefix": "",
     "phraseGap": 0.5,
+    "pauseDuration": 0.5,
     "introPhraseGap": 0.8,
     "font": "Arial",
     "fontColor": "white",

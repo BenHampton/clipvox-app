@@ -1,9 +1,10 @@
 import base64
 import json
 import random
+import re
 import shutil
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from elevenlabs.client import ElevenLabs
@@ -27,6 +28,22 @@ def _get_audio_duration(audio_path):
     clip = AudioFileClip(str(audio_path))
     duration = clip.duration
     clip.close()
+    return duration
+
+
+def _duration(audio_path, tts_data, json_path=None):
+    """Return duration from tts_data cache; fall back to AudioFileClip and backfill the JSON."""
+    cached = tts_data.get("duration")
+    if cached is not None:
+        return cached
+    duration = _get_audio_duration(audio_path)
+    tts_data["duration"] = duration
+    if json_path is not None:
+        try:
+            with open(json_path, "w", encoding="utf-8") as f:
+                json.dump(tts_data, f, indent=2)
+        except OSError:
+            pass
     return duration
 
 
@@ -83,11 +100,11 @@ def _load_intro_clip(config):
         tts_data = json.load(f)
 
     print(f"Loaded intro clip: {audio_path}")
-    return str(audio_path), tts_data
+    return str(audio_path), tts_data, str(json_path)
 
 
 def _load_saved_clips(saved_dir):
-    """Returns list of (audio_path, tts_data) for all valid saved clips."""
+    """Returns list of (audio_path, tts_data, json_path) for all valid saved clips."""
     clips = []
     if not saved_dir.exists():
         return clips
@@ -103,17 +120,17 @@ def _load_saved_clips(saved_dir):
             continue
         with open(json_path, "r", encoding="utf-8") as f:
             tts_data = json.load(f)
-        clips.append((str(audio_path), tts_data))
+        clips.append((str(audio_path), tts_data, str(json_path)))
     return clips
 
 
 def _build_text_cache(saved_dir):
-    """Returns a dict of {phrase_text: (audio_path, tts_data)} from saved clips."""
+    """Returns a dict of {phrase_text: (audio_path, tts_data, json_path)} from saved clips."""
     cache = {}
-    for audio_path, tts_data in _load_saved_clips(saved_dir):
+    for audio_path, tts_data, json_path in _load_saved_clips(saved_dir):
         text = tts_data.get("text", "")
         if text:
-            cache[text] = (audio_path, tts_data)
+            cache[text] = (audio_path, tts_data, json_path)
     return cache
 
 
@@ -129,8 +146,8 @@ def _fill_clips(available_clips, gap, start_time=0.0, max_video=MAX_VIDEO):
     used = []
     current_time = start_time
 
-    for audio_path, tts_data in shuffled:
-        duration = _get_audio_duration(audio_path)
+    for audio_path, tts_data, json_path in shuffled:
+        duration = _duration(audio_path, tts_data, json_path)
         extra_gap = gap if used else 0.0
         if current_time + extra_gap + duration > max_video:
             break
@@ -212,6 +229,9 @@ def _save_tts_clip(audio_bytes, tts_data, saved_dir, prefix):
 
     with open(audio_path, "wb") as f:
         f.write(audio_bytes)
+
+    tts_data["duration"] = _get_audio_duration(str(audio_path))
+
     with open(json_path, "w", encoding="utf-8") as f:
         json.dump(tts_data, f, indent=2)
 
@@ -219,12 +239,45 @@ def _save_tts_clip(audio_bytes, tts_data, saved_dir, prefix):
     return str(audio_path)
 
 
-def _call_elevenlabs(client, text, voice, model):
-    """Calls ElevenLabs TTS API with logging."""
+def _log_elevenlabs_usage(client):
+    """Logs remaining ElevenLabs characters and next reset date. Fails silently."""
+    try:
+        sub = client.user.get().subscription
+        used = sub.character_count
+        limit = sub.character_limit
+        remaining = limit - used
+        reset_unix = getattr(sub, "next_character_count_reset_unix", None)
+        if reset_unix:
+            reset_dt = datetime.fromtimestamp(reset_unix, tz=timezone.utc)
+            reset_str = reset_dt.strftime("%Y-%m-%d %H:%M UTC")
+            print(f"ElevenLabs credits: {remaining:,} remaining of {limit:,}  |  resets {reset_str}")
+        else:
+            print(f"ElevenLabs credits: {remaining:,} remaining of {limit:,}")
+    except Exception:
+        pass
+
+
+def _strip_pause_markers(text):
+    """Remove [pause] markers from text, collapsing any extra whitespace."""
+    return re.sub(r'\s*\[pause\]\s*', ' ', text).strip()
+
+
+def _call_elevenlabs(client, text, voice, model, pause_duration=0.5):
+    """Calls ElevenLabs TTS API with logging.
+
+    If the text contains [pause] markers they are converted to SSML <break> tags
+    and SSML parsing is enabled for that request only.
+    """
+    if "[pause]" in text:
+        escaped = text.replace("[pause]", f'<break time="{pause_duration}s"/>')
+        api_text = f"<speak>{escaped}</speak>"
+    else:
+        api_text = text
+
     print(f"Calling ElevenLabs API for: \"{text}\"")
     response = client.text_to_speech.convert_with_timestamps(
         voice_id=voice,
-        text=text,
+        text=api_text,
         model_id=model,
     )
     print(f"ElevenLabs API response received for: \"{text}\"")
@@ -246,6 +299,7 @@ def _generate_new_clips(config, saved_dir, gap, start_time=0.0, max_video=MAX_VI
     model = tts_config.get("model", "eleven_multilingual_v2")
     voice = tts_config.get("voiceId", "JBFqnCBsd6RMkjVDRZzb")
     prefix = tts_config.get("savedTtsPrefix", "")
+    pause_duration = float(tts_config.get("pauseDuration", 0.5))
 
     client = ElevenLabs(api_key=api_key)
     saved_dir.mkdir(parents=True, exist_ok=True)
@@ -265,19 +319,22 @@ def _generate_new_clips(config, saved_dir, gap, start_time=0.0, max_video=MAX_VI
 
         if text in cache:
             print(f"Using cached TTS for: \"{text}\"")
-            audio_path, tts_data = cache[text]
+            audio_path, tts_data, json_path = cache[text]
             api_calls_made = False
         else:
-            response = _call_elevenlabs(client, text, voice, model)
+            response = _call_elevenlabs(client, text, voice, model, pause_duration)
             audio_bytes = base64.b64decode(response.audio_base_64)
-            word_timings = _extract_word_timings(text, response.alignment)
+            clean_text = _strip_pause_markers(text)
+            word_timings = _extract_word_timings(clean_text, response.alignment)
             chunks = _chunk_words_dynamic(word_timings)
             tts_data = {"text": text, "word_timings": word_timings, "chunks": chunks}
             audio_path = _save_tts_clip(audio_bytes, tts_data, saved_dir, prefix)
-            cache[text] = (audio_path, tts_data)
+            json_path = str(Path(audio_path).with_suffix(".json"))
+            cache[text] = (audio_path, tts_data, json_path)
             api_calls_made = True
+            _log_elevenlabs_usage(client)
 
-        duration = _get_audio_duration(audio_path)
+        duration = _duration(audio_path, tts_data, json_path)
 
         if current_time + extra_gap + duration > max_video:
             print(f"Clip would exceed {max_video:.0f}s limit, stopping.")
@@ -296,9 +353,10 @@ def generate_single_tts(config):
     """
     Generates one TTS clip for an uncached phrase. Intended for standalone use.
     Returns (audio_path, tts_data) or None if all phrases are already cached.
+    After generating, moves the phrase from phrases.json to converted_phrases.json.
     """
     tts_config = config["tts"]
-    phrases_path = tts_config.get("phrasesPath", "")
+    phrases_path = Path(tts_config.get("phrasesPath", ""))
 
     with open(phrases_path, "r", encoding="utf-8") as f:
         phrases = json.load(f)
@@ -310,10 +368,14 @@ def generate_single_tts(config):
     saved_dir.mkdir(parents=True, exist_ok=True)
     cache = _build_text_cache(saved_dir)
 
+    converted_path = phrases_path.parent / "converted_phrases.json"
+    converted = json.loads(converted_path.read_text(encoding="utf-8")) if converted_path.exists() else []
+    converted_set = set(converted)
+
     shuffled = list(phrases)
     random.shuffle(shuffled)
 
-    uncached = [p for p in shuffled if p not in cache]
+    uncached = [p for p in shuffled if p not in cache and p not in converted_set]
 
     if not uncached:
         print("WARNING: All phrases are already cached. No new TTS generated.")
@@ -324,16 +386,29 @@ def generate_single_tts(config):
     model = tts_config.get("model", "eleven_multilingual_v2")
     voice = tts_config.get("voiceId", "JBFqnCBsd6RMkjVDRZzb")
     prefix = tts_config.get("savedTtsPrefix", "")
+    pause_duration = float(tts_config.get("pauseDuration", 0.5))
 
     client = ElevenLabs(api_key=api_key)
-    response = _call_elevenlabs(client, text, voice, model)
+    response = _call_elevenlabs(client, text, voice, model, pause_duration)
 
     audio_bytes = base64.b64decode(response.audio_base_64)
-    word_timings = _extract_word_timings(text, response.alignment)
+    clean_text = _strip_pause_markers(text)
+    word_timings = _extract_word_timings(clean_text, response.alignment)
     chunks = _chunk_words_dynamic(word_timings)
     tts_data = {"text": text, "word_timings": word_timings, "chunks": chunks}
 
     audio_path = _save_tts_clip(audio_bytes, tts_data, saved_dir, prefix)
+
+    remaining = [p for p in phrases if p != text]
+    phrases_path.write_text(json.dumps(remaining, indent=2, ensure_ascii=False), encoding="utf-8")
+
+    if text not in converted_set:
+        converted.append(text)
+        converted_path.write_text(json.dumps(converted, indent=2, ensure_ascii=False), encoding="utf-8")
+
+    print(f"Moved phrase to converted_phrases.json: \"{text}\"")
+    _log_elevenlabs_usage(client)
+
     return audio_path, tts_data
 
 
@@ -351,8 +426,8 @@ def generate_tts(config):
         intro_phrase_gap = float(intro_phrase_gap_val)
 
     # Intro clip always plays first at offset 0
-    intro_audio_path, intro_tts_data = _load_intro_clip(config)
-    intro_duration = _get_audio_duration(intro_audio_path)
+    intro_audio_path, intro_tts_data, intro_json_path = _load_intro_clip(config)
+    intro_duration = _duration(intro_audio_path, intro_tts_data, intro_json_path)
     intro_clip = {"audio_path": intro_audio_path, "tts_data": intro_tts_data, "offset": 0.0}
 
     # Regular clips start after intro + introPhraseGap
@@ -450,7 +525,7 @@ def generate_intro_tts(config):
     cache = _build_text_cache(saved_dir)
 
     if phrase in cache:
-        cached_audio_path, _ = cache[phrase]
+        cached_audio_path, _, _jp = cache[phrase]
         cached_clip_dir = Path(cached_audio_path).parent
 
         # Move existing intro clip back to saved_elevenlabs_tts/ before promoting
@@ -481,17 +556,20 @@ def generate_intro_tts(config):
         model = tts_config.get("model", "eleven_multilingual_v2")
         voice = tts_config.get("introVoiceId") or tts_config.get("voiceId", "JBFqnCBsd6RMkjVDRZzb")
         prefix = tts_config.get("savedTtsPrefix", "")
+        pause_duration = float(tts_config.get("pauseDuration", 0.5))
 
         client = ElevenLabs(api_key=api_key)
-        response = _call_elevenlabs(client, phrase, voice, model)
+        response = _call_elevenlabs(client, phrase, voice, model, pause_duration)
 
         audio_bytes = base64.b64decode(response.audio_base_64)
-        word_timings = _extract_word_timings(phrase, response.alignment)
+        clean_phrase = _strip_pause_markers(phrase)
+        word_timings = _extract_word_timings(clean_phrase, response.alignment)
         chunks = _chunk_words_dynamic(word_timings)
         tts_data = {"text": phrase, "word_timings": word_timings, "chunks": chunks}
 
         audio_path = _save_tts_clip(audio_bytes, tts_data, intro_dir, prefix)
         print(f"New intro TTS saved: {audio_path}")
+        _log_elevenlabs_usage(client)
 
         print(f"\nIntro phrase: \"{phrase}\"")
         print("Intro TTS is set up and ready — videos will now start with this clip.")

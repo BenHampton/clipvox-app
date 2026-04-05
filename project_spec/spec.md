@@ -195,3 +195,88 @@ A: Count only — print moved count and remaining count.
 - Added `--clean-up-tts` to the mutually exclusive mode argument group
 - Added handler for `args.clean_up_tts`: loads config, calls `_run_clean_up_tts(config)`, returns
 - Updated `--clean-up` help text to reflect current behavior (disk cleanup, registry kept intact)
+
+
+
+------------------------------------------------------------------------------------------------------------
+
+
+
+## Command — Auto-move phrase after --tts generation (2026-04-04)
+
+When the `--tts` flag is used, after it finishes creating the TTS, move the individual phrase to `converted_phrases.json` similar to what `--clean-up-tts` does.
+
+## Q&A — Auto-move phrase after --tts generation (2026-04-04)
+
+**Q1: Should the phrase be moved only when a new TTS is generated via the API, or also when the phrase was already cached and skipped?**
+A: Only when a new TTS is generated via the API.
+
+**Q2: Where should the move logic live — in `_run_tts_mode` in `main.py`, or inside `generate_single_tts` in `tts_generator.py`?**
+A: Inside `generate_single_tts` in `tts_generator.py`.
+
+**Q3: Should it guard against duplicates — skip adding to `converted_phrases.json` if the phrase is already there? And should phrases already in `converted_phrases.json` be excluded from API calls?**
+A: Yes — skip duplicates. Phrases already in `converted_phrases.json` should also not be sent to the API.
+
+**Q4: Should there be console output when a phrase is moved?**
+A: Log a message at the end mentioning it was moved.
+
+---
+
+## Summary of Changes — Auto-move phrase after --tts generation (2026-04-04)
+
+### `tts_generator.py` — `generate_single_tts`
+- Loads `converted_phrases.json` at the start; builds `converted_set` from it
+- Excludes phrases already in `converted_set` from the `uncached` candidates (so they never hit the ElevenLabs API)
+- After a successful API generation and `_save_tts_clip`, removes the phrase from `phrases.json` and appends it to `converted_phrases.json` (duplicate-guarded via `converted_set`)
+- Logs `Moved phrase to converted_phrases.json: "<text>"` after the file writes
+
+### `README.md`
+- Updated `--tts` row in the Scripts table to note auto-move behavior
+- Added paragraph to `generate_tts.py` section explaining auto-move and API exclusion
+- Updated "Adding a phrase set" step 5/6 to reflect that `--clean-up-tts` is now for retroactive cleanup only
+
+
+
+------------------------------------------------------------------------------------------------------------
+
+
+
+## Command — [pause] marker support in phrases (2026-04-04)
+
+When generating TTS, if a phrase contains the string `[pause]`, send the applicable parameters to the ElevenLabs API to insert a short pause at that position. Strip `[pause]` from caption text.
+
+## Q&A — [pause] marker support in phrases (2026-04-04)
+
+**Q1: How long should the pause be — fixed or configurable?**
+A: Configurable — add `pauseDuration` under `tts` in `config.json`, default `0.5` seconds.
+
+**Q2: Should `[pause]` be stripped from caption text shown in the video?**
+A: Yes — stripped entirely from captions.
+
+**Q3: Should `enable_ssml_parsing` be sent on every API call, or only when the phrase contains `[pause]`?**
+A: Only when `[pause]` is present — no reason to send the flag on calls that don't need it. (User agreed with recommendation.)
+
+---
+
+## Summary of Changes — [pause] marker support in phrases (2026-04-04)
+
+### `config.json`
+- Added `"pauseDuration": 0.5` under `tts`
+
+### `tts_generator.py`
+- Added `_strip_pause_markers(text)` helper — uses `re.sub` to remove `[pause]` tokens and collapse surrounding whitespace
+- Updated `_call_elevenlabs` to accept `pause_duration=0.5`; when `[pause]` is present, replaces each marker with `<break time="Xs"/>`, wraps text in `<speak>...</speak>`, and sets `enable_ssml_parsing=True` — otherwise sends plain text with no extra parameters
+- All three call sites (`_generate_new_clips`, `generate_single_tts`, `generate_intro_tts`) now read `pauseDuration` from config and pass it to `_call_elevenlabs`
+- All three call sites use `_strip_pause_markers` when passing text to `_extract_word_timings`, so `[pause]` never appears in captions
+- Original phrase text (with `[pause]`) is preserved in `tts_data["text"]` so cache lookups remain correct
+
+### `README.md`
+- Added `pauseDuration` to the `config.json` example block and the `tts` reference table
+
+
+
+------------------------------------------------------------------------------------------------------------
+
+
+
+
