@@ -106,7 +106,7 @@ When `cacheClip` is `true`, extracted clips are saved to `background_videos/<sub
 | `python main.py --clip [N]` | Extract and cache N background clips (default 1), skip TTS and composition |
 | `python main.py --clean-up` | Delete clip files and result videos referenced in `results/used_clips.json`; registry entries are kept intact |
 | `python main.py --clean-up-tts` | Move phrases from `phrasesPath` that already have a cached TTS clip into `converted_phrases.json`, remove duplicates from `phrasesPath`, and log a full report |
-| `python main.py --schedule` | Register a daily Windows Task Scheduler entry using `schedule.scheduleTime` (CT) |
+| `python main.py --schedule` | Register a recurring Windows Task Scheduler entry using `schedule.intervalMinutes` and `schedule.autoShutoffHours` |
 | `python main.py --unschedule` | Remove the ClipVox Windows Task Scheduler entry |
 | `python generate_clip.py` | Extract one or more background clips without running TTS or compositing |
 | `python generate_tts.py` | Pre-generate and cache TTS clips without compositing a video |
@@ -201,7 +201,8 @@ Sets up the intro TTS clip used at the start of every video. Reads `intro_phrase
         "ttsAudioVolume": 1.0
     },
     "schedule": {
-        "scheduleTime": "14:30"
+        "intervalMinutes": 30,
+        "autoShutoffHours": 2
     },
     "youtube": {
         "shouldUpload": true,
@@ -268,9 +269,10 @@ The source audio is trimmed once from `audioStartTime` to the end of the file an
 
 | Key | Type | Description |
 |-----|------|-------------|
-| `scheduleTime` | string | Time to run the pipeline daily, in `HH:MM` 24-hour format, expressed in **Central Time** (e.g. `"14:30"`) |
+| `intervalMinutes` | number | **Required.** How often to run the pipeline, in minutes (e.g. `30` = every 30 minutes) |
+| `autoShutoffHours` | number\|null | Stop the repeating task after this many hours (e.g. `2`). Set to `null` or omit to run indefinitely until manually unscheduled |
 
-Register with `python main.py --schedule`. The time is converted to local system time when the Windows Task Scheduler entry is created. Remove with `python main.py --unschedule`.
+Register with `python main.py --schedule` — the task starts immediately at the current time and repeats at the configured interval. On registration, the console logs the schedule, auto-shutoff, background video, background audio, and phrases path that will be used. Remove with `python main.py --unschedule`.
 
 ### `youtube`
 
