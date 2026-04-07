@@ -6,7 +6,6 @@ import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
-from zoneinfo import ZoneInfo
 
 from clip_registry import clean_registry
 from config_loader import load_config
@@ -205,35 +204,34 @@ def _unregister_schedule(log_result=True):
 
 def _register_schedule(config):
     schedule_config = config.get("schedule", {})
-    time_str = schedule_config.get("scheduleTime", "")
-    if not time_str:
-        print("ERROR: schedule.scheduleTime not set in config.json (e.g. \"14:30\")")
+    interval_minutes = schedule_config.get("intervalMinutes")
+    if not interval_minutes:
+        print("ERROR: schedule.intervalMinutes not set in config.json (e.g. 30)")
         sys.exit(1)
+    interval_minutes = int(interval_minutes)
+    auto_shutoff_hours = schedule_config.get("autoShutoffHours", 2)  # null/empty = run until terminated
 
     if _task_exists():
         print(f"NOTE: An existing scheduled task '{TASK_NAME}' was found — it will be overwritten.")
 
-    try:
-        central = ZoneInfo("America/Chicago")
-        local_tz = datetime.now().astimezone().tzinfo
-        now_ct = datetime.now(central)
-        h, m = map(int, time_str.split(":"))
-        scheduled_ct = now_ct.replace(hour=h, minute=m, second=0, microsecond=0)
-        scheduled_local = scheduled_ct.astimezone(local_tz)
-        local_time_str = scheduled_local.strftime("%H:%M")
-    except Exception as e:
-        print(f"ERROR: Could not parse scheduleTime '{time_str}': {e}")
-        sys.exit(1)
+    start_time_str = datetime.now().strftime("%H:%M")
 
     python_exe = sys.executable
     script_path = Path(__file__).resolve()
     task_cmd = f'"{python_exe}" "{script_path}"'
 
-    result = subprocess.run(
-        ["schtasks", "/create", "/tn", TASK_NAME, "/tr", task_cmd,
-         "/sc", "daily", "/st", local_time_str, "/f"],
-        capture_output=True, text=True
-    )
+    schtasks_args = [
+        "schtasks", "/create", "/tn", TASK_NAME, "/tr", task_cmd,
+        "/sc", "MINUTE", "/mo", str(interval_minutes),
+        "/st", start_time_str, "/f"
+    ]
+
+    if auto_shutoff_hours:
+        total_minutes = int(float(auto_shutoff_hours) * 60)
+        du_str = f"{total_minutes // 60:02d}:{total_minutes % 60:02d}"
+        schtasks_args += ["/du", du_str]
+
+    result = subprocess.run(schtasks_args, capture_output=True, text=True)
 
     if result.returncode != 0:
         print(f"ERROR: Failed to register scheduled task:\n{result.stderr.strip()}")
@@ -245,8 +243,17 @@ def _register_schedule(config):
             print(f"No partial task found for '{TASK_NAME}' — nothing to clean up.")
         sys.exit(1)
 
-    print(f"Scheduled '{TASK_NAME}' to run daily at {time_str} CT ({local_time_str} local time).")
-    print(f"Command: {task_cmd}")
+    shutoff_label = f"{auto_shutoff_hours}h auto-shutoff" if auto_shutoff_hours else "runs until terminated"
+    bg_video = config.get("backgroundVideo", {}).get("videoName", "(not set)")
+    bg_audio_cfg = config.get("backgroundAudio", {})
+    bg_audio = bg_audio_cfg.get("audioPath", "(not set)") if bg_audio_cfg.get("includeAudio", False) else "disabled"
+    phrases_path = config.get("tts", {}).get("phrasesPath", "(not set)")
+
+    print(f"Scheduled '{TASK_NAME}' to run every {interval_minutes} minute(s) starting now ({start_time_str}) | {shutoff_label}.")
+    print(f"  • Background video:  {bg_video}")
+    print(f"  • Background audio:  {bg_audio}")
+    print(f"  • Phrases path:      {phrases_path}")
+    print(f"  • Command:           {task_cmd}")
     print(f"To remove: python main.py --unschedule")
 
 
@@ -293,8 +300,9 @@ def main():
     mode.add_argument(
         "--schedule", action="store_true",
         help=(
-            "Register a daily Windows Task Scheduler entry that runs main.py at the time "
-            "set in config schedule.scheduleTime (stored in Central Time)."
+            "Register a recurring Windows Task Scheduler entry. Starts at schedule.scheduleTime (CT), "
+            "repeats every schedule.intervalMinutes minutes, and stops after schedule.autoShutoffHours "
+            "hours (or runs until terminated if autoShutoffHours is null)."
         )
     )
     mode.add_argument(

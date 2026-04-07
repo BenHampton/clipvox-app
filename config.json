@@ -6,7 +6,8 @@
     "saveResultOnUpload": false
   },
   "schedule": {
-    "scheduleTime": "14:30"
+    "intervalMinutes": 30,
+    "autoShutoffHours": 2
   },
   "youtube": {
     "shouldUpload": true,
