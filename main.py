@@ -10,7 +10,7 @@ from pathlib import Path
 from clip_registry import clean_registry
 from config_loader import load_config
 from clip_generator import generate_clip
-from tts_generator import generate_tts, generate_intro_tts, generate_single_tts
+from tts_generator import generate_tts, generate_intro_tts, generate_single_tts, get_tts_status
 from video_composer import compose_video
 from youtube_uploader import YouTubeUploader
 
@@ -323,6 +323,10 @@ def main():
             "converted_phrases.json, removing them from the active phrase pool."
         )
     )
+    mode.add_argument(
+        "--tts-status", action="store_true",
+        help="Show remaining ElevenLabs monthly characters and the next reset date."
+    )
 
     args = parser.parse_args()
 
@@ -368,6 +372,11 @@ def main():
     if args.clean_up_tts:
         config = load_config()
         _run_clean_up_tts(config)
+        return
+
+    if args.tts_status:
+        config = load_config()
+        get_tts_status(config)
         return
 
     config = load_config()

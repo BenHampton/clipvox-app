@@ -239,6 +239,23 @@ def _save_tts_clip(audio_bytes, tts_data, saved_dir, prefix):
     return str(audio_path)
 
 
+def get_tts_status(config):
+    """Prints remaining ElevenLabs monthly characters and the next reset date."""
+    api_key = config.get("elevenlabs_api_key", "")
+    client = ElevenLabs(api_key=api_key)
+    sub = client.user.get().subscription
+    used = sub.character_count
+    limit = sub.character_limit
+    remaining = limit - used
+    reset_unix = getattr(sub, "next_character_count_reset_unix", None)
+    if reset_unix:
+        reset_dt = datetime.fromtimestamp(reset_unix, tz=timezone.utc)
+        reset_str = reset_dt.strftime("%Y-%m-%d %H:%M UTC")
+        print(f"ElevenLabs credits: {remaining:,} remaining of {limit:,}  |  resets {reset_str}")
+    else:
+        print(f"ElevenLabs credits: {remaining:,} remaining of {limit:,}")
+
+
 def _log_elevenlabs_usage(client):
     """Logs remaining ElevenLabs characters and next reset date. Fails silently."""
     try:

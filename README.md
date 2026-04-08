@@ -106,6 +106,7 @@ When `cacheClip` is `true`, extracted clips are saved to `background_videos/<sub
 | `python main.py --clip [N]` | Extract and cache N background clips (default 1), skip TTS and composition |
 | `python main.py --clean-up` | Delete clip files and result videos referenced in `results/used_clips.json`; registry entries are kept intact |
 | `python main.py --clean-up-tts` | Move phrases from `phrasesPath` that already have a cached TTS clip into `converted_phrases.json`, remove duplicates from `phrasesPath`, and log a full report |
+| `python main.py --tts-status` | Show remaining ElevenLabs monthly characters and the next reset date |
 | `python main.py --schedule` | Register a recurring Windows Task Scheduler entry using `schedule.intervalMinutes` and `schedule.autoShutoffHours` |
 | `python main.py --unschedule` | Remove the ClipVox Windows Task Scheduler entry |
 | `python generate_clip.py` | Extract one or more background clips without running TTS or compositing |
