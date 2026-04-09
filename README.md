@@ -184,6 +184,7 @@ Sets up the intro TTS clip used at the start of every video. Reads `intro_phrase
         "phraseGap": 0.5,
         "pauseDuration": 0.5,
         "introPhraseGap": 0.5,
+        "phraseExclusionDays": 3,
         "font": "Arial",
         "fontColor": "white",
         "fontSize": 70
@@ -241,6 +242,7 @@ Sets up the intro TTS clip used at the start of every video. Reads `intro_phrase
 | `phraseGap` | number | Seconds of silence between regular TTS phrases (default `0.5`) |
 | `pauseDuration` | number | Duration in seconds of pauses inserted where `[pause]` appears in a phrase (default `0.5`). The `[pause]` marker is stripped from captions |
 | `introPhraseGap` | number | Seconds of silence between the intro phrase and the first regular phrase; falls back to `phraseGap` if empty or not set |
+| `phraseExclusionDays` | number | Number of days a used phrase is excluded from reuse. Phrases used within this rolling window (start-of-day granularity) are skipped on selection. Default `3` |
 | `font` | string | Caption font name (must be available to FFmpeg) |
 | `fontColor` | string | Caption color — any FFmpeg color string, e.g. `white`, `yellow` |
 | `fontSize` | number | Caption font size in pixels |
@@ -326,6 +328,8 @@ After the intro plays, regular TTS phrases begin at `intro_duration + introPhras
 ```
 talk_to_speak/creepy_ai/
 ├── phrases.json
+├── converted_phrases.json
+├── past_phrase_used.json           # auto-created after first successful video run
 ├── intro_tts/
 │   ├── intro_phrase.json           # {"phrase": "Your intro text here."}
 │   └── tts_elevenlabs_YYYYMMDD_HHMMSS/
@@ -343,6 +347,8 @@ talk_to_speak/creepy_ai/
 
 - **`useSavedTts: true`** — loads all cached clips from the `saved_elevenlabs_tts/` folder alongside `phrases.json`. Fills the video (45–60s target) in random order with no repeats per run. Logs a warning if more than 15s of the video would be silent.
 - **`useSavedTts: false`** — calls the ElevenLabs API to generate new clips, caches them, then fills the video the same way.
+- **Phrase exclusion** — before selecting clips each run, phrases used within the last `phraseExclusionDays` days are excluded. The exclusion list is stored in `past_phrase_used.json` (next to `phrases.json`) and written only after a video is successfully composed. Entries older than the window are pruned automatically on each run. The intro clip is never subject to exclusion.
+- **Exhaustion fallback** (`useSavedTts` only) — if every saved TTS phrase is in `past_phrase_used` and the exclusion window has not fully passed, `past_phrase_used.json` is force-cleared, a warning is logged, and TTS selection restarts from scratch with no exclusions.
 - Each TTS clip is stored in its own timestamped subdirectory: `saved_elevenlabs_tts/tts_elevenlabs_YYYYMMDD_HHMMSS/`
 - ElevenLabs returns word-level timestamps (chunks); these are stored in a JSON sidecar alongside each `.mp3` and used by the composer to place caption `drawtext` filters at exact times.
 - After every ElevenLabs API call, remaining monthly characters and the next reset date are logged. For `--tts` this appears after the moved-phrase confirmation; for other flows it appears after the clip is saved:
@@ -396,6 +402,7 @@ clipvox-app/
 │   └── creepy_ai/
 │       ├── phrases.json            # JSON array of active phrases
 │       ├── converted_phrases.json  # Phrases already cached as TTS (moved here by --clean-up-tts)
+│       ├── past_phrase_used.json   # Rolling exclusion log — phrases used in the last N days
 │       ├── intro_tts/              # Required: one tts_elevenlabs_* clip + intro_phrase.json
 │       │   ├── intro_phrase.json   # {"phrase": "..."} — defines the intro text
 │       │   └── tts_elevenlabs_YYYYMMDD_HHMMSS/

@@ -32,7 +32,8 @@
     "introPhraseGap": 0.8,
     "font": "Arial",
     "fontColor": "white",
-    "fontSize": 70
+    "fontSize": 70,
+    "phraseExclusionDays": 5
   },
   "backgroundVideo": {
     "videoName": "minecraft_parkour/minecraft_parkour.mp4",

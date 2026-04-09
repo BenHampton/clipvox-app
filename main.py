@@ -10,7 +10,7 @@ from pathlib import Path
 from clip_registry import clean_registry
 from config_loader import load_config
 from clip_generator import generate_clip
-from tts_generator import generate_tts, generate_intro_tts, generate_single_tts, get_tts_status
+from tts_generator import generate_tts, generate_intro_tts, generate_single_tts, get_tts_status, record_used_phrases
 from video_composer import compose_video
 from youtube_uploader import YouTubeUploader
 
@@ -27,10 +27,11 @@ def _run_pipeline(config):
 
     print("\n--- Step 2: Text-to-Speech ---")
     intro_status = generate_intro_tts(config)
-    tts_clips, video_duration, tts_api_count = generate_tts(config)
+    tts_clips, used_clips, video_duration, tts_api_count = generate_tts(config)
 
     print("\n--- Step 3: Composing Video ---")
     output_path, bg_audio_from_cache = compose_video(config, clip_path, tts_clips, video_duration)
+    record_used_phrases(config, used_clips)
 
     if not clip_from_cache and not config["backgroundVideo"].get("cacheClip", False):
         Path(clip_path).unlink(missing_ok=True)

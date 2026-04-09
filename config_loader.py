@@ -21,7 +21,8 @@ DEFAULT_CONFIG = {
         "savedTtsPrefix": "",
         "font": "Arial",
         "fontColor": "white",
-        "fontSize": 70
+        "fontSize": 70,
+        "phraseExclusionDays": 3
     },
     "output": {
         "name": "result_",

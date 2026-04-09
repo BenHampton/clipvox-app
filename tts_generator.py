@@ -4,7 +4,7 @@ import random
 import re
 import shutil
 import sys
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 from elevenlabs.client import ElevenLabs
@@ -22,6 +22,74 @@ def _get_saved_tts_dir(config):
 def _get_intro_dir(config):
     phrases_path = Path(config["tts"]["phrasesPath"])
     return phrases_path.parent / "intro_tts"
+
+
+def _get_past_phrases_path(config):
+    phrases_path = Path(config["tts"]["phrasesPath"])
+    return phrases_path.parent / "past_phrase_used.json"
+
+
+def _load_excluded_texts(config):
+    """Load past_phrase_used.json, prune entries outside the rolling window, return excluded text set."""
+    path = _get_past_phrases_path(config)
+    exclusion_days = int(config["tts"].get("phraseExclusionDays", 3))
+    cutoff = date.today() - timedelta(days=exclusion_days)
+
+    if not path.exists():
+        return set()
+
+    with open(path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+
+    used_phrases = data.get("used_phrases", [])
+    active = [e for e in used_phrases if date.fromisoformat(e["used_date"]) > cutoff]
+
+    if len(active) < len(used_phrases):
+        pruned = len(used_phrases) - len(active)
+        data["used_phrases"] = active
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+        print(f"Pruned {pruned} expired phrase(s) from past_phrase_used.json (older than {exclusion_days} days).")
+
+    return {e["text"] for e in active}
+
+
+def _force_clear_past_phrases(config):
+    """Wipe all entries from past_phrase_used.json, preserving the file structure."""
+    path = _get_past_phrases_path(config)
+    data = {"used_phrases": []}
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+    print("past_phrase_used.json has been cleared.")
+
+
+def record_used_phrases(config, clips):
+    """Append used phrases to past_phrase_used.json. Call this after a video is successfully written."""
+    if not clips:
+        return
+
+    path = _get_past_phrases_path(config)
+    today_str = date.today().isoformat()
+
+    if path.exists():
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    else:
+        data = {"used_phrases": []}
+
+    existing_texts = {e["text"] for e in data["used_phrases"]}
+    added = 0
+    for clip in clips:
+        text = clip["tts_data"].get("text", "")
+        if text and text not in existing_texts:
+            data["used_phrases"].append({"text": text, "used_date": today_str})
+            existing_texts.add(text)
+            added += 1
+
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+
+    print(f"Recorded {added} used phrase(s) in past_phrase_used.json.")
 
 
 def _get_audio_duration(audio_path):
@@ -301,7 +369,7 @@ def _call_elevenlabs(client, text, voice, model, pause_duration=0.5):
     return response
 
 
-def _generate_new_clips(config, saved_dir, gap, start_time=0.0, max_video=MAX_VIDEO):
+def _generate_new_clips(config, saved_dir, gap, start_time=0.0, max_video=MAX_VIDEO, excluded_texts=None):
     """Generate TTS clips from phrases until max_video is filled, using cache where available."""
     tts_config = config["tts"]
     phrases_path = tts_config.get("phrasesPath", "")
@@ -322,7 +390,11 @@ def _generate_new_clips(config, saved_dir, gap, start_time=0.0, max_video=MAX_VI
     saved_dir.mkdir(parents=True, exist_ok=True)
 
     cache = _build_text_cache(saved_dir)
-    shuffled_phrases = list(phrases)
+    excluded = excluded_texts or set()
+    shuffled_phrases = [p for p in phrases if p not in excluded]
+    if len(shuffled_phrases) < len(phrases):
+        skipped = len(phrases) - len(shuffled_phrases)
+        print(f"Skipping {skipped} recently used phrase(s) (phraseExclusionDays window).")
     random.shuffle(shuffled_phrases)
 
     generated = []
@@ -451,18 +523,34 @@ def generate_tts(config):
     regular_start = intro_duration + intro_phrase_gap
 
     saved_dir = _get_saved_tts_dir(config)
+    excluded_texts = _load_excluded_texts(config)
 
     if tts_config.get("useSavedTts", False):
-        available = _load_saved_clips(saved_dir)
+        all_saved = _load_saved_clips(saved_dir)
+        available = [(a, t, j) for a, t, j in all_saved if t.get("text", "") not in excluded_texts]
+
+        if all_saved and not available:
+            exclusion_days = int(tts_config.get("phraseExclusionDays", 3))
+            print(
+                f"\nWARNING: All {len(all_saved)} saved TTS phrase(s) are in past_phrase_used.json "
+                f"and the {exclusion_days}-day exclusion window has not passed for all entries. "
+                "Force-clearing past_phrase_used.json and restarting TTS selection.\n"
+            )
+            _force_clear_past_phrases(config)
+            excluded_texts = set()
+            available = all_saved
+
         if not available:
             print(f"WARNING: useSavedTts is true but no saved clips found in: {saved_dir}")
             used_clips, tts_end, api_count = [], regular_start, 0
         else:
-            print(f"Found {len(available)} saved TTS clip(s).")
+            print(f"Found {len(available)} saved TTS clip(s) (after exclusion filter).")
             used_clips, tts_end = _fill_clips(available, phrase_gap, regular_start, max_video)
             api_count = 0
     else:
-        used_clips, tts_end, api_count = _generate_new_clips(config, saved_dir, phrase_gap, regular_start, max_video)
+        used_clips, tts_end, api_count = _generate_new_clips(
+            config, saved_dir, phrase_gap, regular_start, max_video, excluded_texts
+        )
 
     all_clips = [intro_clip] + used_clips
     video_duration = max(min_video, tts_end)
@@ -475,7 +563,7 @@ def generate_tts(config):
         )
 
     print(f"Using {len(all_clips)} TTS clip(s) (1 intro + {len(used_clips)} regular), video duration: {video_duration:.1f}s")
-    return all_clips, video_duration, api_count
+    return all_clips, used_clips, video_duration, api_count
 
 
 def generate_intro_tts(config):

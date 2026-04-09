@@ -126,3 +126,6 @@ results/used_clips.json
 
 # MoviePy leftover temp files
 *TEMP_MPY_wvf_snd.mp4
+
+# Phrase exclusion log (runtime state, not committed)
+past_phrase_used.json
