@@ -344,6 +344,13 @@ def main():
     if args.schedule:
         config = load_config()
         _register_schedule(config)
+        print("\n--- Running pipeline immediately ---")
+        output_path = _run_pipeline(config)
+        yt_config = config.get("youtube", {})
+        if yt_config.get("shouldUpload", True):
+            _run_upload(config, [Path(output_path)])
+        else:
+            print("\nUpload skipped (youtube.shouldUpload is false).")
         return
 
     if args.unschedule:

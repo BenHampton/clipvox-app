@@ -7,7 +7,7 @@
   },
   "schedule": {
     "intervalMinutes": 25,
-    "autoShutoffHours": 2
+    "autoShutoffHours": 3
   },
   "youtube": {
     "shouldUpload": true,
