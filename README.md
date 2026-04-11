@@ -28,7 +28,7 @@ background_videos/  +  phrases.json
           deletes local file after upload
 ```
 
-1. **Background Clip** — extracts a random 60s segment from a source video in `background_videos/`, or reuses an existing cached clip. Set `cacheClip: true` to save the clip to disk for reuse; `false` (default) extracts a temp clip that is deleted after composition.
+1. **Background Clip** — extracts a random segment from a source video in `background_videos/` (length adjusted for `speed`), or reuses an existing cached clip. Set `cacheClip: true` to save the clip to disk for reuse; `false` (default) extracts a temp clip that is deleted after composition.
 2. **Text-to-Speech** — always plays a fixed intro clip first, then fills the remaining video duration (45–60s) with saved or newly-generated TTS phrases separated by configurable gaps (`phraseGap`, `introPhraseGap`)
 3. **Compose** — builds an FFmpeg filter complex that scales/crops the background to 9:16, mixes all TTS audio at their calculated offsets, and burns in synced word-by-word captions via the `drawtext` filter, then writes to `results/`
 4. **Upload** — authenticates with YouTube via OAuth 2.0 and uploads to Shorts; records the YouTube video ID, URL, and timestamp in `results/used_clips.json`, then deletes the local file
@@ -116,7 +116,7 @@ When `cacheClip` is `true`, extracted clips are saved to `background_videos/<sub
 
 Prompts for the number of clips to create (defaults to 1). Each clip is a random 60s segment saved to `background_videos/<subfolder>/clips/`.
 
-Filenames include a timestamp and start time, e.g. `saved_clip_20260324_143022_start_time_45.mp4`. Up to 3 retry attempts are made on filename collision before overwriting with a warning.
+Filenames include a timestamp, start time, and speed, e.g. `saved_clip_20260324_143022_start_time_45_speed1.25.mp4`. Up to 3 retry attempts are made on filename collision before overwriting with a warning.
 
 ```
 === Summary ===
@@ -170,6 +170,7 @@ Sets up the intro TTS clip used at the start of every video. Reads `intro_phrase
         "videoName": "minecraft_parkour/minecraft_parkour.mp4",
         "clipName": "saved_clip_",
         "backgroundVideoLength": 60,
+        "speed": 1.0,
         "useExistingClip": true,
         "existingClipName": "",
         "cacheClip": false
@@ -224,8 +225,9 @@ Sets up the intro TTS clip used at the start of every video. Reads `intro_phrase
 |-----|------|-------------|
 | `videoName` | string | Source `.mp4` path relative to `background_videos/`, e.g. `minecraft_parkour/minecraft_parkour.mp4` |
 | `clipName` | string | Filename prefix for newly extracted clips (only used when `cacheClip` is `true`) |
-| `backgroundVideoLength` | number | Duration in seconds for extracted clips and TTS max fill (default `60`) |
-| `useExistingClip` | bool | When `true`, reuses the most recent cached clip instead of generating a new one |
+| `backgroundVideoLength` | number | Duration in seconds for the final background clip and TTS max fill (default `60`) |
+| `speed` | number | Playback speed multiplier for the background video (default `1.0`). `1.25` = 25% faster. Only the background visuals are sped up — TTS audio and captions are unaffected. Source footage extracted is `backgroundVideoLength × speed` seconds |
+| `useExistingClip` | bool | When `true`, reuses the most recent cached clip instead of generating a new one. Cached clips with a different speed are automatically skipped |
 | `existingClipName` | string | Use a specific cached clip by name; falls back to most recent if not found |
 | `cacheClip` | bool | When `true`, saves newly extracted clips to `clips/` for reuse; `false` (default) uses a temp file deleted after composition. Always `true` when using `--clip` |
 
@@ -397,7 +399,7 @@ clipvox-app/
 │   └── minecraft_parkour/
 │       ├── minecraft_parkour.mp4
 │       └── clips/
-│           └── saved_clip_YYYYMMDD_HHMMSS_start_time_N.mp4
+│           └── saved_clip_YYYYMMDD_HHMMSS_start_time_N_speed1.25.mp4
 ├── talk_to_speak/
 │   └── creepy_ai/
 │       ├── phrases.json            # JSON array of active phrases

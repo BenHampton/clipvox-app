@@ -65,6 +65,7 @@ def compose_video(config, clip_path, tts_clips, video_duration):
     tts_config = config["tts"]
     output_config = config["output"]
     ba_config = config.get("backgroundAudio", {})
+    speed = float(config.get("backgroundVideo", {}).get("speed", 1.0))
 
     font_name = tts_config.get("font", "Arial")
     font_size = int(tts_config.get("fontSize", 70))
@@ -95,9 +96,11 @@ def compose_video(config, clip_path, tts_clips, video_duration):
 
     filter_parts = []
 
-    # video: scale to cover TARGET_WIDTH x TARGET_HEIGHT, then center-crop
+    # video: optionally speed up, scale to cover TARGET_WIDTH x TARGET_HEIGHT, then center-crop
+    speed_filter = f"setpts={1.0 / speed:.6f}*PTS," if speed != 1.0 else ""
     video_chain = (
         f"[0:v]"
+        f"{speed_filter}"
         f"scale={TARGET_WIDTH}:{TARGET_HEIGHT}:force_original_aspect_ratio=increase,"
         f"crop={TARGET_WIDTH}:{TARGET_HEIGHT}:(iw-{TARGET_WIDTH})/2:(ih-{TARGET_HEIGHT})/2"
     )

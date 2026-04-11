@@ -39,6 +39,12 @@ def _get_used_clips():
     return get_used_clips()
 
 
+def _parse_speed(filename):
+    """Extract speed value from a clip filename (e.g. '_speed1.5.mp4' → 1.5). Defaults to 1.0."""
+    match = re.search(r"_speed(\d+(?:\.\d+)?)\.", filename)
+    return float(match.group(1)) if match else 1.0
+
+
 def _is_clip_used(clip_path, used_clips):
     """
     Returns True if the clip matches any used clip by exact filename OR by start time.
@@ -53,7 +59,7 @@ def _is_clip_used(clip_path, used_clips):
     return False
 
 
-def _get_existing_unused_clip(config, used_clips):
+def _get_existing_unused_clip(config, used_clips, speed=1.0):
     """
     Returns the path to the most recent cached clip that has not been used in
     an uploaded video, or None if no unused clip exists.
@@ -80,6 +86,9 @@ def _get_existing_unused_clip(config, used_clips):
     print(f"  Found {len(clips)} cached clip(s) in {clips_dir}")
 
     for clip in clips:
+        if _parse_speed(clip.name) != speed:
+            print(f"  Skipping (speed mismatch — clip is {_parse_speed(clip.name)}x, need {speed}x): {clip.name}")
+            continue
         if _is_clip_used(clip, used_clips):
             reason = f"start time {_parse_start_time(clip.name)}s" if _parse_start_time(clip.name) is not None else "filename match"
             print(f"  Skipping (already used — {reason}): {clip.name}")
@@ -98,8 +107,10 @@ def generate_clip(config):
 
     used_clips = _get_used_clips()
 
+    speed = float(bg_config.get("speed", 1.0))
+
     if bg_config.get("useExistingClip", True):
-        existing = _get_existing_unused_clip(config, used_clips)
+        existing = _get_existing_unused_clip(config, used_clips, speed=speed)
         if existing:
             print(f"Using existing clip: {existing}")
             return existing, True, False
@@ -118,14 +129,15 @@ def generate_clip(config):
     ffmpeg_exe = _find_ffmpeg()
 
     clip_length = int(bg_config.get("backgroundVideoLength", 60))
+    source_clip_length = clip_length * speed
     duration = _get_video_duration(ffmpeg_exe, video_path)
-    print(f"Source video: {video_path}  |  Duration: {duration:.1f}s  |  Clip length: {clip_length}s")
-    if duration < clip_length:
+    print(f"Source video: {video_path}  |  Duration: {duration:.1f}s  |  Clip length: {clip_length}s  |  Speed: {speed}x  |  Source footage needed: {source_clip_length:.1f}s")
+    if duration < source_clip_length:
         raise ValueError(
-            f"Background video is too short ({duration:.1f}s). Must be at least {clip_length} seconds."
+            f"Background video is too short ({duration:.1f}s). At {speed}x speed, at least {source_clip_length:.1f} seconds of source footage is needed."
         )
 
-    max_start = duration - clip_length
+    max_start = duration - source_clip_length
     start_time = random.uniform(0, max_start)
     cache_clip = bg_config.get("cacheClip", False)
 
@@ -136,7 +148,7 @@ def generate_clip(config):
         clip_name = bg_config.get("clipName", "") or "saved_clip_"
         max_attempts = 3
         for attempt in range(1, max_attempts + 1):
-            output_path = clips_dir / f"{clip_name}{timestamp}_start_time_{int(start_time)}.mp4"
+            output_path = clips_dir / f"{clip_name}{timestamp}_start_time_{int(start_time)}_speed{speed}.mp4"
             if output_path.exists():
                 had_collision = True
                 if attempt < max_attempts:
@@ -147,15 +159,15 @@ def generate_clip(config):
             break
         print(f"Saving clip to: {output_path}")
     else:
-        output_path = clips_dir / f"tmp_{timestamp}_start_time_{int(start_time)}.mp4"
+        output_path = clips_dir / f"tmp_{timestamp}_start_time_{int(start_time)}_speed{speed}.mp4"
 
-    print(f"Extracting clip: {start_time:.1f}s -> {start_time + clip_length:.1f}s  from {video_path.name}")
+    print(f"Extracting clip: {start_time:.1f}s -> {start_time + source_clip_length:.1f}s  from {video_path.name}")
     subprocess.run(
         [
             ffmpeg_exe,
             "-ss", str(start_time),
             "-i", str(video_path),
-            "-t", str(clip_length),
+            "-t", str(source_clip_length),
             "-c:v", "copy",
             "-an",
             str(output_path),

@@ -36,9 +36,10 @@
     "phraseExclusionDays": 5
   },
   "backgroundVideo": {
-    "videoName": "minecraft_parkour/minecraft_parkour.mp4",
+    "videoName": "neon_city/neon_city.mp4",
     "clipName": "saved_clip_",
     "backgroundVideoLength": 60,
+    "speed": 1.50,
     "useExistingClip": false,
     "existingClipName": "",
     "cacheClip": false
