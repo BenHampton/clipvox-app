@@ -61,6 +61,19 @@ def _font_opts(path):
     return f"fontfile={fp}"
 
 
+def _pick_encoder(ffmpeg_exe):
+    try:
+        result = subprocess.run(
+            [ffmpeg_exe, "-hide_banner", "-encoders"],
+            capture_output=True, text=True
+        )
+        if "h264_nvenc" in result.stdout:
+            return "h264_nvenc"
+    except Exception:
+        pass
+    return "libx264"
+
+
 def compose_video(config, clip_path, tts_clips, video_duration):
     tts_config = config["tts"]
     output_config = config["output"]
@@ -178,7 +191,8 @@ def compose_video(config, clip_path, tts_clips, video_duration):
         cmd += ["-i", str(inp)]
     cmd += ["-map", "[vout]"]
     cmd += audio_map_args
-    cmd += ["-c:v", "libx264", "-preset", preset]
+    encoder = _pick_encoder(ffmpeg_exe)
+    cmd += ["-c:v", encoder, "-preset", preset]
     cmd += ["-stats", "-t", f"{video_duration:.3f}", str(output_path)]
 
     print(f"Writing final video: {output_path}")
@@ -201,4 +215,4 @@ def compose_video(config, clip_path, tts_clips, video_duration):
 
     add_pending_entry(clip_path, output_path.name)
     print(f"Done! Output: {output_path}")
-    return str(output_path), bg_audio_from_cache
+    return str(output_path), bg_audio_from_cache, encoder

@@ -30,7 +30,7 @@ def _run_pipeline(config):
     tts_clips, used_clips, video_duration, tts_api_count = generate_tts(config)
 
     print("\n--- Step 3: Composing Video ---")
-    output_path, bg_audio_from_cache = compose_video(config, clip_path, tts_clips, video_duration)
+    output_path, bg_audio_from_cache, encoder = compose_video(config, clip_path, tts_clips, video_duration)
     record_used_phrases(config, used_clips)
 
     if not clip_from_cache and not config["backgroundVideo"].get("cacheClip", False):
@@ -59,8 +59,10 @@ def _run_pipeline(config):
     print(f"  • Background clip:  {clip_path}  ({'cached' if clip_from_cache else 'newly extracted'})")
     print(f"  • Intro TTS:        {intro_label}")
     print(f"  • TTS clips:        {len(tts_clips)} clip(s)  |  {video_duration:.2f}s  |  {tts_cache_label}")
+    gpu_or_cpu = "GPU (h264_nvenc)" if encoder == "h264_nvenc" else "CPU (libx264)"
     print(f"  • Background audio: {audio_line}")
     print(f"  • Output:           {output_path}")
+    print(f"  • Video encoder:    {gpu_or_cpu}")
 
     return output_path
 

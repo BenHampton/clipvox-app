@@ -33,13 +33,13 @@
     "font": "Arial",
     "fontColor": "white",
     "fontSize": 70,
-    "phraseExclusionDays": 5
+    "phraseExclusionDays": 10
   },
   "backgroundVideo": {
     "videoName": "neon_city/neon_city.mp4",
     "clipName": "saved_clip_",
     "backgroundVideoLength": 60,
-    "speed": 1.50,
+    "speed": 2.50,
     "useExistingClip": false,
     "existingClipName": "",
     "cacheClip": false
