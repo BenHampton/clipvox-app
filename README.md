@@ -4,7 +4,7 @@ Automated short-form vertical video pipeline. Combines a background gameplay cli
 
 ---
 
-## How it works
+## How it works 
 
 ```
 background_videos/  +  phrases.json
