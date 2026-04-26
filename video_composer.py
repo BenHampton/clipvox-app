@@ -74,6 +74,71 @@ def _pick_encoder(ffmpeg_exe):
     return "libx264"
 
 
+_COLOR_MAP = {
+    "white":   "FFFFFF",
+    "yellow":  "00FFFF",
+    "red":     "0000FF",
+    "blue":    "FF0000",
+    "green":   "00FF00",
+    "black":   "000000",
+    "cyan":    "FFFF00",
+    "magenta": "FF00FF",
+    "orange":  "0080FF",
+}
+
+
+def _color_to_ass(color):
+    name = color.lower().strip()
+    if name in _COLOR_MAP:
+        return f"&H00{_COLOR_MAP[name]}"
+    if name.startswith("#") and len(name) == 7:
+        r, g, b = name[1:3], name[3:5], name[5:7]
+        return f"&H00{b}{g}{r}".upper()
+    return "&H00FFFFFF"
+
+
+def _ass_time(seconds):
+    h = int(seconds // 3600)
+    m = int((seconds % 3600) // 60)
+    s = int(seconds % 60)
+    cs = int(round((seconds % 1) * 100))
+    if cs == 100:
+        s += 1
+        cs = 0
+    return f"{h}:{m:02d}:{s:02d}.{cs:02d}"
+
+
+def _write_ass(tts_clips, video_duration, font_name, font_size, font_color, output_dir):
+    primary = _color_to_ass(font_color)
+    lines = [
+        "[Script Info]",
+        "ScriptType: v4.00+",
+        f"PlayResX: {TARGET_WIDTH}",
+        f"PlayResY: {TARGET_HEIGHT}",
+        "",
+        "[V4+ Styles]",
+        "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
+        f"Style: Default,{font_name},{font_size},{primary},&H000000FF,&H24000000,&H00000000,0,0,0,0,100,100,0,0,1,3,0,5,10,10,10,1",
+        "",
+        "[Events]",
+        "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
+    ]
+    for clip_info in tts_clips:
+        offset = clip_info["offset"]
+        for chunk in clip_info["tts_data"].get("chunks", []):
+            abs_start = offset + chunk["start"]
+            abs_end = min(offset + chunk["end"], video_duration)
+            if abs_start >= video_duration:
+                break
+            text = chunk["text"].replace("\\", "\\\\").replace("{", "\\{")
+            lines.append(
+                f"Dialogue: 0,{_ass_time(abs_start)},{_ass_time(abs_end)},Default,,0,0,0,,{text}"
+            )
+    ass_path = output_dir / "captions_tmp.ass"
+    ass_path.write_text("\n".join(lines), encoding="utf-8")
+    return ass_path
+
+
 def compose_video(config, clip_path, tts_clips, video_duration):
     tts_config = config["tts"]
     output_config = config["output"]
@@ -95,6 +160,8 @@ def compose_video(config, clip_path, tts_clips, video_duration):
 
     font_path = _find_font(font_name)
     ffmpeg_exe = _find_ffmpeg()
+    encoder = _pick_encoder(ffmpeg_exe)
+    use_gpu = encoder == "h264_nvenc"
 
     results_dir = Path("results")
     results_dir.mkdir(parents=True, exist_ok=True)
@@ -111,35 +178,30 @@ def compose_video(config, clip_path, tts_clips, video_duration):
 
     # video: optionally speed up, scale to cover TARGET_WIDTH x TARGET_HEIGHT, then center-crop
     speed_filter = f"setpts={1.0 / speed:.6f}*PTS," if speed != 1.0 else ""
-    video_chain = (
-        f"[0:v]"
-        f"{speed_filter}"
-        f"scale={TARGET_WIDTH}:{TARGET_HEIGHT}:force_original_aspect_ratio=increase,"
-        f"crop={TARGET_WIDTH}:{TARGET_HEIGHT}:(iw-{TARGET_WIDTH})/2:(ih-{TARGET_HEIGHT})/2"
-    )
-
-    # chain drawtext filter for each caption chunk
-    if font_path:
-        font_opt = _font_opts(font_path)
+    if use_gpu:
+        video_chain = (
+            f"[0:v]"
+            f"{speed_filter}"
+            f"hwupload,"
+            f"scale_cuda={TARGET_WIDTH}:{TARGET_HEIGHT}:force_original_aspect_ratio=increase,"
+            f"hwdownload,format=nv12,"
+            f"crop={TARGET_WIDTH}:{TARGET_HEIGHT}:(iw-{TARGET_WIDTH})/2:(ih-{TARGET_HEIGHT})/2"
+        )
     else:
-        font_opt = f"font={font_name}"
+        video_chain = (
+            f"[0:v]"
+            f"{speed_filter}"
+            f"scale={TARGET_WIDTH}:{TARGET_HEIGHT}:force_original_aspect_ratio=increase,"
+            f"crop={TARGET_WIDTH}:{TARGET_HEIGHT}:(iw-{TARGET_WIDTH})/2:(ih-{TARGET_HEIGHT})/2"
+        )
 
-    for clip_info in tts_clips:
-        offset = clip_info["offset"]
-        for chunk in clip_info["tts_data"].get("chunks", []):
-            abs_start = offset + chunk["start"]
-            abs_end = min(offset + chunk["end"], video_duration)
-            if abs_start >= video_duration:
-                break
-            video_chain += (
-                f",drawtext={font_opt}"
-                f":text={_escape_text(chunk['text'])}"
-                f":fontcolor={font_color}"
-                f":fontsize={font_size}"
-                f":x=(w-text_w)/2:y=(h-text_h)/2"
-                f":borderw=3:bordercolor=black@0.86"
-                f":enable=between(t\\,{abs_start:.3f}\\,{abs_end:.3f})"
-            )
+    ass_path = None
+    if tts_clips:
+        ass_path = _write_ass(tts_clips, video_duration, font_name, font_size, font_color, results_dir)
+        ass_path_str = str(ass_path.resolve()).replace("\\", "/")
+        if len(ass_path_str) >= 2 and ass_path_str[1] == ":":
+            ass_path_str = ass_path_str[2:]
+        video_chain += f",subtitles={ass_path_str}"
 
     video_chain += "[vout]"
     filter_parts.append(video_chain)
@@ -187,12 +249,16 @@ def compose_video(config, clip_path, tts_clips, video_duration):
     cmd = [ffmpeg_exe, "-y", "-loglevel", "error"]
     if threads > 0:
         cmd += ["-threads", str(threads)]
-    for inp in inputs:
+    if use_gpu:
+        cmd += ["-hwaccel", "cuda"]
+    cmd += ["-i", str(inputs[0])]
+    for inp in inputs[1:]:
         cmd += ["-i", str(inp)]
     cmd += ["-map", "[vout]"]
     cmd += audio_map_args
-    encoder = _pick_encoder(ffmpeg_exe)
     cmd += ["-c:v", encoder, "-preset", preset]
+    if use_gpu:
+        cmd += ["-rc:v", "vbr", "-cq:v", "23", "-b:v", "0"]
     cmd += ["-stats", "-t", f"{video_duration:.3f}", str(output_path)]
 
     print(f"Writing final video: {output_path}")
@@ -209,6 +275,8 @@ def compose_video(config, clip_path, tts_clips, video_duration):
         result = subprocess.run(cmd_with_fc)
     finally:
         fc_path.unlink(missing_ok=True)
+        if ass_path:
+            ass_path.unlink(missing_ok=True)
 
     if result.returncode != 0:
         raise RuntimeError(f"FFmpeg failed (exit {result.returncode}) — see output above.")

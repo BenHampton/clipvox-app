@@ -33,7 +33,7 @@
     "font": "Arial",
     "fontColor": "white",
     "fontSize": 70,
-    "phraseExclusionDays": 10
+    "phraseExclusionDays": 20
   },
   "backgroundVideo": {
     "videoName": "neon_city/neon_city.mp4",

@@ -59,10 +59,17 @@ def _run_pipeline(config):
     print(f"  • Background clip:  {clip_path}  ({'cached' if clip_from_cache else 'newly extracted'})")
     print(f"  • Intro TTS:        {intro_label}")
     print(f"  • TTS clips:        {len(tts_clips)} clip(s)  |  {video_duration:.2f}s  |  {tts_cache_label}")
-    gpu_or_cpu = "GPU (h264_nvenc)" if encoder == "h264_nvenc" else "CPU (libx264)"
+    use_gpu = encoder == "h264_nvenc"
+    decode_label  = "GPU (hwaccel cuda)"  if use_gpu else "CPU (software)"
+    scale_label   = "GPU (scale_cuda)"    if use_gpu else "CPU (scale)"
+    encode_label  = "GPU (h264_nvenc)"    if use_gpu else "CPU (libx264)"
     print(f"  • Background audio: {audio_line}")
     print(f"  • Output:           {output_path}")
-    print(f"  • Video encoder:    {gpu_or_cpu}")
+    print(f"  • Video decode:     {decode_label}")
+    print(f"  • Video scale:      {scale_label}")
+    print(f"  • Video crop:       CPU (crop)  [no GPU filter available]")
+    print(f"  • Video drawtext:   CPU (drawtext)  [no GPU filter available]")
+    print(f"  • Video encode:     {encode_label}")
 
     return output_path
 
