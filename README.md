@@ -4,6 +4,14 @@ Automated short-form vertical video pipeline. Combines a background gameplay cli
 
 ---
 
+### setup
+1. uv init
+2. uv venv
+3. uv run python --version
+   - Python 3.14.4
+4. uv pip install -r requirements.txt OR uv sync
+
+
 ## How it works 
 
 ```
